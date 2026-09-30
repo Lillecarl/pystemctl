@@ -9,6 +9,7 @@ description = "Python reimplementation of systemctl and journalctl, with helpers
 requires-python = ">=3.11"
 dependencies = [
     "anyio>=4",
+    "argcomplete>=3",
     "jeepney>=0.9",
     "systemd-python",
 ]

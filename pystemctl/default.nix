@@ -3,9 +3,12 @@
   buildPythonPackage,
   hatchling,
   anyio,
+  argcomplete,
   jeepney,
   systemd-python,
+  installShellFiles,
   pytestCheckHook,
+  stdenv,
 }:
 
 buildPythonPackage rec {
@@ -19,11 +22,28 @@ buildPythonPackage rec {
 
   dependencies = [
     anyio
+    argcomplete
     jeepney
     systemd-python
   ];
 
+  nativeBuildInputs = [ installShellFiles ];
+
   nativeCheckInputs = [ pytestCheckHook ];
+
+  postInstall =
+    let
+      register-python-argcomplete = lib.getExe' argcomplete "register-python-argcomplete";
+    in
+    lib.optionalString (stdenv.buildPlatform.canExecute stdenv.hostPlatform) ''
+      export PATH="$out/bin:$PATH"
+      for cmd in pystemctl pyjournalctl; do
+        installShellCompletion --cmd "$cmd" \
+          --bash <(${register-python-argcomplete} --shell bash "$cmd") \
+          --zsh <(${register-python-argcomplete} --shell zsh "$cmd") \
+          --fish <(${register-python-argcomplete} --shell fish "$cmd")
+      done
+    '';
 
   pythonImportsCheck = [
     "pystemctl"
