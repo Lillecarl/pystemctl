@@ -73,7 +73,7 @@ async def wait_job(bus: Bus, job_path: str, timeout: float = 30.0) -> str:
         await anyio.sleep(0.1)
 
 
-def _is_finished(props: dict[str, Any]) -> bool:
+def unit_finished(props: dict[str, Any]) -> bool:
     if props.get("ActiveState") not in _FINISHED_STATES:
         return False
     job = props.get("Job")
@@ -131,7 +131,7 @@ async def wait_until_finished(bus: Bus, name: str, timeout: float | None = None)
             except DBusErrorResponse:
                 group.cancel_scope.cancel()
                 return
-            if props.get("Type") is not None and _is_finished(props):
+            if props.get("Type") is not None and unit_finished(props):
                 outcome["props"] = props
                 group.cancel_scope.cancel()
                 return

@@ -17,6 +17,7 @@ from .query import (
     cmd_show,
 )
 from .run import cmd_run
+from .tail import cmd_tail
 from .units import cmd_list, cmd_list_unit_files, cmd_status
 from .wait import cmd_wait
 
@@ -41,4 +42,5 @@ __all__ = [
     "cmd_start",
     "cmd_status",
     "cmd_stop",
+    "cmd_tail",
 ]

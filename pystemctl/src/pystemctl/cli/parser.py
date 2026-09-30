@@ -39,7 +39,13 @@ def build_parser() -> argparse.ArgumentParser:
     )
     subparsers = parser.add_subparsers(dest="command", required=True)
 
-    run = _add(subparsers, "run", commands.cmd_run, "start a command as an ephemeral unit")
+    run = _add(
+        subparsers,
+        "run",
+        commands.cmd_run,
+        "start a command as an ephemeral unit",
+        option_groups=[_job_filter_options()],
+    )
     run.add_argument("--unit", metavar="NAME", help="unit name (default: generated)")
     run.add_argument(
         "--profile",
@@ -49,21 +55,6 @@ def build_parser() -> argparse.ArgumentParser:
     run.add_argument("--description", "-d", metavar="TEXT")
     run.add_argument("--working-directory", "-D", metavar="DIR")
     run.add_argument("--setenv", "-E", action="append", default=[], metavar="KEY=VALUE")
-    run.add_argument(
-        "--tag",
-        "-T",
-        dest="tags",
-        action="append",
-        default=[],
-        metavar="TAG",
-        help="tag the job and keep it after it stops, so it can be found with "
-        "'pystemctl jobs --tag' and waited on with 'pystemctl wait'",
-    )
-    run.add_argument(
-        "--session",
-        metavar="ID",
-        help="session to record the job under (default: this session)",
-    )
     run.add_argument("--property", "-P", action="append", default=[], metavar="NAME=VALUE")
     run.add_argument("--type", default="simple", choices=["simple", "exec", "oneshot", "idle"])
     run.add_argument("--remain-after-exit", action="store_true")
@@ -102,9 +93,13 @@ def build_parser() -> argparse.ArgumentParser:
     files.add_argument("--type", "-t", metavar="TYPE")
     files.add_argument("--state", metavar="STATE")
 
-    status = _add(subparsers, "status", commands.cmd_status, "show unit status")
-    status.add_argument("units", nargs="+", metavar="UNIT")
-    status.add_argument("-n", "--lines", type=int, default=10, metavar="N")
+    status = _add(
+        subparsers,
+        "status",
+        commands.cmd_status,
+        "show unit status",
+        option_groups=[_unit_positional(), _replay_option(10)],
+    )
     status.add_argument("--no-journal", action="store_true")
 
     for name, handler, help_text in (
@@ -113,58 +108,72 @@ def build_parser() -> argparse.ArgumentParser:
         ("restart", commands.cmd_restart, "restart units"),
         ("reload", commands.cmd_reload, "reload units"),
         ("rm", commands.cmd_rm, "stop and forget units"),
+        ("is-active", commands.cmd_is_active, "check whether units are active"),
+        ("is-failed", commands.cmd_is_failed, "check whether units have failed"),
+        ("is-enabled", commands.cmd_is_enabled, "check whether units are enabled"),
+        ("enable", commands.cmd_enable, "enable unit files"),
+        ("disable", commands.cmd_disable, "disable unit files"),
+        ("cat", commands.cmd_cat, "show unit file contents"),
     ):
-        command = _add(subparsers, name, handler, help_text)
-        command.add_argument("units", nargs="+", metavar="UNIT")
+        _add(subparsers, name, handler, help_text, option_groups=[_unit_positional()])
 
-    active = _add(subparsers, "is-active", commands.cmd_is_active, "check whether units are active")
-    active.add_argument("units", nargs="+", metavar="UNIT")
-
-    failed = _add(subparsers, "is-failed", commands.cmd_is_failed, "check whether units have failed")
-    failed.add_argument("units", nargs="+", metavar="UNIT")
-
-    enabled = _add(
-        subparsers, "is-enabled", commands.cmd_is_enabled, "check whether units are enabled"
+    _add(
+        subparsers,
+        "show",
+        commands.cmd_show,
+        "dump unit properties",
+        option_groups=[_unit_positional(required=False)],
     )
-    enabled.add_argument("units", nargs="+", metavar="UNIT")
-
-    enable = _add(subparsers, "enable", commands.cmd_enable, "enable unit files")
-    enable.add_argument("units", nargs="+", metavar="UNIT")
-
-    disable = _add(subparsers, "disable", commands.cmd_disable, "disable unit files")
-    disable.add_argument("units", nargs="+", metavar="UNIT")
-
-    cat = _add(subparsers, "cat", commands.cmd_cat, "show unit file contents")
-    cat.add_argument("units", nargs="+", metavar="UNIT")
-
-    show = _add(subparsers, "show", commands.cmd_show, "dump unit properties")
-    show.add_argument("units", nargs="*", metavar="UNIT")
 
     _add(subparsers, "daemon-reload", commands.cmd_daemon_reload, "reload unit files")
 
-    logs = _add(subparsers, "logs", commands.cmd_logs, "show journal entries for units")
-    logs.add_argument("units", nargs="+", metavar="UNIT")
-    add_journal_options(logs)
-
-    jobs = _add(subparsers, "jobs", commands.cmd_jobs, "list ephemeral jobs, by tag or session")
-    jobs.add_argument("--tag", "-T", dest="tags", action="append", default=[], metavar="TAG")
-    jobs.add_argument("--session", metavar="ID", help="session to list (default: this session)")
-    jobs.add_argument(
-        "--any-session", action="store_true", help="list jobs from every session"
+    _add(
+        subparsers,
+        "logs",
+        commands.cmd_logs,
+        "show journal entries for units",
+        option_groups=[
+            _unit_positional(),
+            _journal_options(),
+            _follow_option(),
+            _replay_option(),
+        ],
     )
+
+    jobs = _add(
+        subparsers,
+        "jobs",
+        commands.cmd_jobs,
+        "list ephemeral jobs, by tag or session",
+        option_groups=[_job_filter_options()],
+    )
+    jobs.add_argument("--any-session", action="store_true", help="list jobs from every session")
     jobs.add_argument("--all", "-a", action="store_true", help="include finished jobs")
 
-    wait = _add(subparsers, "wait", commands.cmd_wait, "wait for a unit to finish or log a match")
-    wait.add_argument("unit", metavar="UNIT")
-    wait.add_argument("--timeout", type=float, metavar="SECONDS")
-    wait.add_argument("--grep", metavar="PATTERN", help="return early when a log line matches")
-    wait.add_argument(
-        "-n",
-        "--lines",
-        type=int,
-        default=None,
-        metavar="N",
-        help="replay N lines before following (default: 200)",
+    _add(
+        subparsers,
+        "wait",
+        commands.cmd_wait,
+        "wait for a unit to finish or log a match",
+        option_groups=[_watch_options(), _replay_option(200), _single_unit_positional()],
+    )
+
+    tail = _add(
+        subparsers,
+        "tail",
+        commands.cmd_tail,
+        "follow a unit's output until it stops or a line matches",
+        option_groups=[
+            _replay_option(200),
+            _watch_options(),
+            _follow_option(),
+            _single_unit_positional(),
+        ],
+    )
+    tail.add_argument(
+        "--until-exit",
+        action="store_true",
+        help="keep following until the unit stops, then return its exit status",
     )
 
     profile = _add(subparsers, "profile", commands.cmd_profile, "inspect command profiles")
@@ -180,50 +189,23 @@ def build_journal_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="pyjournalctl",
         description="Query the systemd journal.",
+        parents=[_replay_option(), _journal_options(), _follow_option()],
     )
-    parser.add_argument("--json", action="store_true")
+    parser.add_argument(
+        "--no-pager", action="store_true", help="accepted for journalctl compatibility"
+    )
     parser.add_argument(
         "-u", "--unit", dest="system_units", action="append", default=[], metavar="UNIT"
     )
     parser.add_argument(
         "--user-unit", dest="user_units", action="append", default=[], metavar="UNIT"
     )
-    add_journal_options(parser)
+    parser.add_argument("--json", action="store_true")
     return parser
 
 
-def add_journal_options(parser: argparse.ArgumentParser) -> None:
-    parser.add_argument(
-        "--no-pager", action="store_true", help="accepted for journalctl compatibility"
-    )
-    parser.add_argument("-n", "--lines", type=int, default=None, metavar="N")
-    parser.add_argument("-f", "--follow", action="store_true")
-    parser.add_argument("--since")
-    parser.add_argument("--until")
-    parser.add_argument("-p", "--priority", metavar="LEVEL")
-    parser.add_argument("-b", "--boot", nargs="?", const=True, default=None, metavar="ID")
-    parser.add_argument("-o", "--output", default="short", choices=jr.OUTPUT_MODES)
-
-
-def _add(
-    subparsers: argparse._SubParsersAction,
-    name: str,
-    handler: _Handler,
-    help_text: str,
-    aliases: Sequence[str] = (),
-) -> argparse.ArgumentParser:
-    parser = subparsers.add_parser(
-        name,
-        parents=[_common_options()],
-        aliases=list(aliases),
-        help=help_text,
-        description=help_text,
-    )
-    parser.set_defaults(handler=handler)
-    return parser
-
-
-def _common_options() -> argparse.ArgumentParser:
+def _scope_options() -> argparse.ArgumentParser:
+    """The ``--user``/``--system`` choice, shared by every command."""
     parser = argparse.ArgumentParser(add_help=False)
     group = parser.add_mutually_exclusive_group()
     group.add_argument(
@@ -242,4 +224,86 @@ def _common_options() -> argparse.ArgumentParser:
     )
     parser.add_argument("--json", action="store_true", help="emit JSON")
     parser.set_defaults(scope=Scope.USER)
+    return parser
+
+
+def _unit_positional(*, required: bool = True) -> argparse.ArgumentParser:
+    """One or more unit names as positional arguments."""
+    parser = argparse.ArgumentParser(add_help=False)
+    parser.add_argument("units", nargs="+" if required else "*", metavar="UNIT")
+    return parser
+
+
+def _single_unit_positional() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(add_help=False)
+    parser.add_argument("unit", metavar="UNIT")
+    return parser
+
+
+def _replay_option(default: int | None = None) -> argparse.ArgumentParser:
+    """The ``-n/--lines`` replay count, shared by every command that reads logs."""
+    parser = argparse.ArgumentParser(add_help=False)
+    help_text = "how many recent lines to read"
+    if default is not None:
+        help_text += f" (default: {default})"
+    parser.add_argument("-n", "--lines", type=int, default=default, metavar="N", help=help_text)
+    return parser
+
+
+def _watch_options() -> argparse.ArgumentParser:
+    """The timeout and pattern that turn a log reader into a watcher."""
+    parser = argparse.ArgumentParser(add_help=False)
+    parser.add_argument("--timeout", type=float, metavar="SECONDS")
+    parser.add_argument(
+        "--grep", metavar="PATTERN", help="select matching lines; return early on a match"
+    )
+    return parser
+
+
+def _follow_option() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(add_help=False)
+    parser.add_argument(
+        "-f", "--follow", action="store_true", help="keep printing new lines as they arrive"
+    )
+    return parser
+
+
+def _journal_options() -> argparse.ArgumentParser:
+    """The shared timestamp, priority, boot and output options."""
+    parser = argparse.ArgumentParser(add_help=False)
+    parser.add_argument("--since")
+    parser.add_argument("--until")
+    parser.add_argument("-p", "--priority", metavar="LEVEL")
+    parser.add_argument("-b", "--boot", nargs="?", const=True, default=None, metavar="ID")
+    parser.add_argument("-o", "--output", default="short", choices=jr.OUTPUT_MODES)
+    return parser
+
+
+def _job_filter_options() -> argparse.ArgumentParser:
+    """The tag and session filters shared by ``run`` and ``jobs``."""
+    parser = argparse.ArgumentParser(add_help=False)
+    parser.add_argument(
+        "--tag", "-T", dest="tags", action="append", default=[], metavar="TAG"
+    )
+    parser.add_argument("--session", metavar="ID")
+    return parser
+
+
+def _add(
+    subparsers: argparse._SubParsersAction,
+    name: str,
+    handler: _Handler,
+    help_text: str,
+    *,
+    aliases: Sequence[str] = (),
+    option_groups: Sequence[argparse.ArgumentParser] = (),
+) -> argparse.ArgumentParser:
+    parser = subparsers.add_parser(
+        name,
+        parents=[_scope_options(), *option_groups],
+        aliases=list(aliases),
+        help=help_text,
+        description=help_text,
+    )
+    parser.set_defaults(handler=handler)
     return parser

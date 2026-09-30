@@ -15,6 +15,7 @@ from .control import (
     restart_unit,
     start_unit,
     stop_unit,
+    unit_finished,
     wait_job,
     wait_until_finished,
 )
@@ -69,6 +70,7 @@ __all__ = [
     "unit_active_state",
     "unit_interface",
     "unit_properties",
+    "unit_finished",
     "wait_job",
     "wait_until_finished",
 ]
