@@ -23,13 +23,15 @@ def _profile_completer(**_: object) -> list[str]:
 
 def register_completers(parser: argparse.ArgumentParser) -> None:
     """Attach value completers that argcomplete resolves at completion time."""
+    completers = {"profile": _profile_completer}
     for action in parser._actions:
         if not isinstance(action, argparse._SubParsersAction):
             continue
         for subparser in action.choices.values():
             for subaction in subparser._actions:
-                if subaction.dest == "profile":
-                    subaction.completer = _profile_completer
+                completer = completers.get(subaction.dest)
+                if completer is not None:
+                    subaction.completer = completer
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -117,12 +119,20 @@ def build_parser() -> argparse.ArgumentParser:
     ):
         _add(subparsers, name, handler, help_text, option_groups=[_unit_positional()])
 
-    _add(
+    show = _add(
         subparsers,
         "show",
         commands.cmd_show,
         "dump unit properties",
         option_groups=[_unit_positional(required=False)],
+    )
+    show.add_argument(
+        "-P",
+        "--property",
+        dest="properties",
+        action="append",
+        metavar="NAME",
+        help="print only this property; repeat for several",
     )
 
     _add(subparsers, "daemon-reload", commands.cmd_daemon_reload, "reload unit files")

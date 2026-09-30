@@ -26,6 +26,35 @@ class Job:
     def name(self) -> str:
         return self.unit.name
 
+    @property
+    def started_at(self) -> int:
+        """Microseconds since the epoch when the job started, or 0."""
+        for key in ("ActiveEnterTimestamp", "ExecMainStartTimestamp", "StateChangeTimestamp"):
+            value = self.props.get(key)
+            if isinstance(value, int):
+                return value
+        return 0
+
+    @property
+    def main_pid(self) -> int:
+        value = self.props.get("MainPID")
+        return value if isinstance(value, int) else 0
+
+    @property
+    def result(self) -> str | None:
+        """The outcome once the job has stopped, or None while it runs."""
+        if self.unit.active_state in {"inactive", "failed"}:
+            value = self.props.get("Result")
+            return value if isinstance(value, str) else None
+        return None
+
+    @property
+    def exit_status(self) -> int | None:
+        if self.result == "exit-code":
+            value = self.props.get("ExecMainStatus")
+            return value if isinstance(value, int) else None
+        return None
+
 
 async def collect_jobs(
     bus: Bus,
@@ -63,11 +92,7 @@ async def collect_jobs(
 
 
 def _started_at(job: Job) -> int:
-    for key in ("ActiveEnterTimestamp", "ExecMainStartTimestamp", "StateChangeTimestamp"):
-        value = job.props.get(key)
-        if isinstance(value, int):
-            return value
-    return 0
+    return job.started_at
 
 
 async def resolve(

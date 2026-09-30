@@ -11,6 +11,7 @@ from jeepney.wrappers import DBusErrorResponse
 
 from ... import systemd as sd
 from ...bus import MANAGER_INTERFACE, SYSTEMD_PATH, Bus
+from ...errors import PystemctlError
 from ...render import format_property_value
 from ..helpers import jsonable
 
@@ -99,17 +100,27 @@ async def cmd_cat(bus: Bus, args: argparse.Namespace) -> int:
 
 async def cmd_show(bus: Bus, args: argparse.Namespace) -> int:
     targets: list[str | None] = [sd.normalize_unit_name(unit) for unit in args.units] or [None]
+    wanted = getattr(args, "properties", None) or None
     for target in targets:
         if target is None:
             props = await bus.get_all(SYSTEMD_PATH, MANAGER_INTERFACE)
         else:
             props = await sd.unit_properties(bus, target)
+
+        if wanted is not None:
+            missing = [name for name in wanted if name not in props]
+            if missing:
+                raise PystemctlError(
+                    f"{target or 'manager'}: no such property: {', '.join(missing)}"
+                )
+            props = {name: props[name] for name in wanted}
+
         if args.json:
             print(json.dumps({key: jsonable(value) for key, value in props.items()}, default=str))
             continue
-        if target is not None:
+        if target is not None and wanted is None:
             print(f"# {target}")
-        for key in sorted(props):
+        for key in sorted(props) if wanted is None else wanted:
             print(f"{key}={format_property_value(props[key])}")
     return 0
 
