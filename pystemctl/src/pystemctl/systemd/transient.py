@@ -17,6 +17,7 @@ from jeepney.wrappers import DBusErrorResponse
 
 from ..bus import Bus
 from ..errors import PystemctlError
+from .tags import SESSION_ENV, TAGS_ENV, tags_to_environment
 
 
 @dataclass(slots=True)
@@ -37,6 +38,25 @@ class TransientSpec:
     runtime_max_sec: float | None = None
     nice: int | None = None
     slice_name: str | None = None
+    tags: Sequence[str] = ()
+    session: str | None = None
+    # Hold the unit until this connection drops. A collecting unit is otherwise
+    # unloaded the instant it stops, before its Result can be read, so a waiter
+    # that needs the exit status has to pin it.
+    pin: bool = False
+
+    def unit_environment(self) -> dict[str, str]:
+        """The full environment, with the reserved tag variables merged in.
+
+        A tag value given in ``environment`` directly is kept, so a caller can
+        set the session without going through the ``session`` field.
+        """
+        merged = dict(self.environment)
+        if self.tags and TAGS_ENV not in merged:
+            merged[TAGS_ENV] = tags_to_environment(self.tags)
+        if self.session and SESSION_ENV not in merged:
+            merged[SESSION_ENV] = self.session
+        return merged
 
 
 def generate_unit_name(command: Sequence[str]) -> str:
@@ -72,9 +92,10 @@ def build_transient_properties(spec: TransientSpec) -> list[tuple[str, tuple[str
         properties.append(("RemainAfterExit", ("b", True)))
     if spec.working_directory:
         properties.append(("WorkingDirectory", ("s", spec.working_directory)))
-    if spec.environment:
+    environment = spec.unit_environment()
+    if environment:
         properties.append(
-            ("Environment", ("as", [f"{key}={value}" for key, value in spec.environment.items()]))
+            ("Environment", ("as", [f"{key}={value}" for key, value in environment.items()]))
         )
     if spec.runtime_max_sec is not None:
         properties.append(("RuntimeMaxUSec", ("t", int(spec.runtime_max_sec * 1_000_000))))
@@ -82,6 +103,8 @@ def build_transient_properties(spec: TransientSpec) -> list[tuple[str, tuple[str
         properties.append(("Nice", ("i", spec.nice)))
     if spec.slice_name:
         properties.append(("Slice", ("s", spec.slice_name)))
+    if spec.pin:
+        properties.append(("AddRef", ("b", True)))
     properties.extend(spec.properties.items())
     return properties
 

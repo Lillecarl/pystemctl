@@ -11,6 +11,7 @@ dependencies = [
     "anyio>=4",
     "argcomplete>=3",
     "jeepney>=0.9",
+    "platformdirs>=4",
     "systemd-python",
 ]
 

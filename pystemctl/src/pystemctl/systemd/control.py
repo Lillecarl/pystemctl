@@ -16,6 +16,10 @@ from .units import load_unit_path, unit_interface
 _TERMINAL_JOB_STATES = frozenset({"done", "canceled", "failed", "timeout"})
 _FINISHED_STATES = frozenset({"inactive", "failed"})
 
+# The service properties the exit status is reconstructed from, taken from the
+# PropertiesChanged payload because they reset once the unit stops.
+_INTERESTING = ("Result", "ExecMainStatus", "ExecMainCode", "ActiveState", "SubState")
+
 
 async def start_unit(bus: Bus, name: str, mode: str = "replace") -> str:
     return (await bus.manager("StartUnit", "ss", (name, mode)))[0]
@@ -75,6 +79,11 @@ def _is_finished(props: dict[str, Any]) -> bool:
     job = props.get("Job")
     if isinstance(job, (tuple, list)) and job and job[0]:
         return False
+    # A service reports ActiveState=inactive on one PropertiesChanged emission
+    # and Result on a later one, so stopping at the state alone reads a stale
+    # "success". Waiting for Result is what makes --wait return the real code.
+    if props.get("Type") is not None and props.get("Result") is None:
+        return False
     return True
 
 
@@ -86,14 +95,14 @@ async def wait_until_finished(bus: Bus, name: str, timeout: float | None = None)
     poll is the fallback for a signal that does not arrive.
     """
     path = await load_unit_path(bus, name)
-    rule = MatchRule(
+    properties_rule = MatchRule(
         type="signal",
         sender=SYSTEMD_BUS_NAME,
         path=path,
         interface="org.freedesktop.DBus.Properties",
         member="PropertiesChanged",
     )
-    await bus.add_match(rule)
+    await bus.add_match(properties_rule)
 
     async def snapshot() -> dict[str, Any]:
         props = await bus.get_all(path, UNIT_INTERFACE)
@@ -102,17 +111,39 @@ async def wait_until_finished(bus: Bus, name: str, timeout: float | None = None)
             props.update(await bus.get_all(path, interface))
         return props
 
+    outcome: dict[str, Any] = {}
+
+    async def watch_state(properties: Any, group: anyio.abc.TaskGroup) -> None:
+        while True:
+            received: Any = None
+            with anyio.move_on_after(1.0):
+                received = await properties.get()
+            if received is not None:
+                # The signal body carries the values as they were at the moment
+                # of the change. Reading them here avoids racing the reset that
+                # follows the stop, which a fresh GetAll would lose.
+                _signature, changed, _invalidated = received.body
+                for key in _INTERESTING:
+                    if key in changed:
+                        outcome.setdefault("changes", {})[key] = changed[key][1]
+            try:
+                props = await snapshot()
+            except DBusErrorResponse:
+                group.cancel_scope.cancel()
+                return
+            if props.get("Type") is not None and _is_finished(props):
+                outcome["props"] = props
+                group.cancel_scope.cancel()
+                return
+
     async def wait() -> dict[str, Any]:
-        with bus.filter(rule) as queue:
-            while True:
-                try:
-                    props = await snapshot()
-                except DBusErrorResponse:
-                    return {}
-                if _is_finished(props):
-                    return props
-                with anyio.move_on_after(1.0):
-                    await queue.get()
+        outcome.clear()
+        with bus.filter(properties_rule) as properties:
+            async with anyio.create_task_group() as group:
+                group.start_soon(watch_state, properties, group)
+        props = outcome.get("props") or {}
+        changes = outcome.get("changes") or {}
+        return {**props, **changes}
 
     scoped = anyio.move_on_after(timeout) if timeout is not None else contextlib.nullcontext()
     result: dict[str, Any] | None = None

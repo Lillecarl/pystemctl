@@ -5,6 +5,7 @@
   anyio,
   argcomplete,
   jeepney,
+  platformdirs,
   systemd-python,
   installShellFiles,
   pytestCheckHook,
@@ -24,6 +25,7 @@ buildPythonPackage rec {
     anyio
     argcomplete
     jeepney
+    platformdirs
     systemd-python
   ];
 

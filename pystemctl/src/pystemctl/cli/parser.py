@@ -12,6 +12,26 @@ from . import commands
 _Handler = Callable[[Bus, argparse.Namespace], Awaitable[int]]
 
 
+def _profile_completer(**_: object) -> list[str]:
+    from ..profiles import load_profiles
+
+    try:
+        return sorted(load_profiles())
+    except Exception:
+        return []
+
+
+def register_completers(parser: argparse.ArgumentParser) -> None:
+    """Attach value completers that argcomplete resolves at completion time."""
+    for action in parser._actions:
+        if not isinstance(action, argparse._SubParsersAction):
+            continue
+        for subparser in action.choices.values():
+            for subaction in subparser._actions:
+                if subaction.dest == "profile":
+                    subaction.completer = _profile_completer
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="pystemctl",
@@ -21,9 +41,28 @@ def build_parser() -> argparse.ArgumentParser:
 
     run = _add(subparsers, "run", commands.cmd_run, "start a command as an ephemeral unit")
     run.add_argument("--unit", metavar="NAME", help="unit name (default: generated)")
+    run.add_argument(
+        "--profile",
+        metavar="NAME",
+        help="load defaults from a named profile before the command line",
+    )
     run.add_argument("--description", "-d", metavar="TEXT")
     run.add_argument("--working-directory", "-D", metavar="DIR")
     run.add_argument("--setenv", "-E", action="append", default=[], metavar="KEY=VALUE")
+    run.add_argument(
+        "--tag",
+        "-T",
+        dest="tags",
+        action="append",
+        default=[],
+        metavar="TAG",
+        help="tag the job; query it back with 'pystemctl jobs --tag'",
+    )
+    run.add_argument(
+        "--session",
+        metavar="ID",
+        help="session to record the job under (default: this session)",
+    )
     run.add_argument("--property", "-P", action="append", default=[], metavar="NAME=VALUE")
     run.add_argument("--type", default="simple", choices=["simple", "exec", "oneshot", "idle"])
     run.add_argument("--remain-after-exit", action="store_true")
@@ -92,6 +131,28 @@ def build_parser() -> argparse.ArgumentParser:
     logs = _add(subparsers, "logs", commands.cmd_logs, "show journal entries for units")
     logs.add_argument("units", nargs="+", metavar="UNIT")
     add_journal_options(logs)
+
+    jobs = _add(subparsers, "jobs", commands.cmd_jobs, "list ephemeral jobs, by tag or session")
+    jobs.add_argument("--tag", "-T", dest="tags", action="append", default=[], metavar="TAG")
+    jobs.add_argument("--session", metavar="ID", help="session to list (default: this session)")
+    jobs.add_argument(
+        "--any-session", action="store_true", help="list jobs from every session"
+    )
+    jobs.add_argument("--all", "-a", action="store_true", help="include finished jobs")
+
+    wait = _add(subparsers, "wait", commands.cmd_wait, "wait for a unit to finish or log a match")
+    wait.add_argument("unit", metavar="UNIT")
+    wait.add_argument("--timeout", type=float, metavar="SECONDS")
+    wait.add_argument("--grep", metavar="PATTERN", help="return early when a log line matches")
+    wait.add_argument(
+        "-n", "--lines", type=int, default=0, metavar="N", help="replay N lines before following"
+    )
+
+    profile = _add(subparsers, "profile", commands.cmd_profile, "inspect command profiles")
+    profile.add_argument(
+        "action", nargs="?", choices=["list", "show", "path"], default="list"
+    )
+    profile.add_argument("name", nargs="?", metavar="NAME")
 
     return parser
 

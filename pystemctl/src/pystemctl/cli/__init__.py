@@ -10,7 +10,7 @@ from jeepney.wrappers import DBusErrorResponse
 
 from ..errors import PystemctlError
 from .dispatch import dispatch, journal_dispatch
-from .parser import build_journal_parser, build_parser
+from .parser import build_journal_parser, build_parser, register_completers
 
 PYTHON_ARGCOMPLETE_OK = True
 
@@ -20,6 +20,7 @@ def _autocomplete(parser: object) -> None:
         import argcomplete
     except ImportError:
         return
+    register_completers(parser)  # type: ignore[arg-type]
     argcomplete.autocomplete(parser)
 
 

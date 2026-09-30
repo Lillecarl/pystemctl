@@ -131,3 +131,19 @@ async def get_unit_file_state(bus: Bus, name: str) -> str:
 async def is_transient(bus: Bus, unit: Unit) -> bool:
     props = await bus.get_all(unit.path, UNIT_INTERFACE)
     return bool(props.get("Transient", False))
+
+
+def environment_of(props: dict[str, Any]) -> dict[str, str]:
+    """Parse the unit properties' ``Environment`` into a mapping.
+
+    systemd serialises the environment as a list of ``KEY=VALUE`` pairs, with
+    a value omitted for an inherited variable.
+    """
+    raw = props.get("Environment")
+    if not isinstance(raw, (list, tuple)):
+        return {}
+    environment: dict[str, str] = {}
+    for item in raw:
+        key, separator, value = str(item).partition("=")
+        environment[key] = value if separator else ""
+    return environment

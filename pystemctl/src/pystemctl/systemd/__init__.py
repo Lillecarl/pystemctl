@@ -18,6 +18,7 @@ from .control import (
     wait_job,
     wait_until_finished,
 )
+from .jobs import Job, collect_jobs
 from .transient import (
     TransientSpec,
     build_transient_properties,
@@ -41,9 +42,11 @@ from .units import (
 )
 
 __all__ = [
+    "Job",
     "TransientSpec",
     "Unit",
     "build_transient_properties",
+    "collect_jobs",
     "disable_unit",
     "enable_unit",
     "generate_unit_name",
