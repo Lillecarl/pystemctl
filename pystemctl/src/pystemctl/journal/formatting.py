@@ -72,6 +72,11 @@ def format_entry(entry: dict[str, Any], mode: str) -> str:
     return f"{prefix}: {_message(entry)}"
 
 
+def entry_message(entry: dict[str, Any]) -> str:
+    """The entry's MESSAGE as text, for matching against a pattern."""
+    return _message(entry)
+
+
 def _message(entry: dict[str, Any]) -> str:
     message = entry.get("MESSAGE")
     if isinstance(message, bytes):

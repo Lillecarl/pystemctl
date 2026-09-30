@@ -12,7 +12,7 @@ from dataclasses import dataclass
 
 import anyio
 
-from .formatting import format_entry
+from .formatting import entry_message, format_entry
 from .reader import entries, open_reader
 
 
@@ -34,13 +34,15 @@ async def follow_lines(
 ) -> AsyncIterator[str]:
     """Yield formatted lines from the matched units as they arrive.
 
-    With ``pattern`` set only matching lines are yielded. The reader starts at
-    the tail, so it sees output from the moment of the call onward, plus the
-    last ``since_lines`` entries so already-written output is not missed.
+    With ``pattern`` set only matching entries are yielded. The pattern is
+    matched against the entry's MESSAGE, not the formatted output, so it means
+    the same thing whatever ``mode`` is. The reader starts at the tail, so it
+    sees output from the moment of the call onward, plus the last
+    ``since_lines`` entries so already-written output is not missed.
     """
     compiled = re.compile(pattern) if pattern else None
     reader = open_reader(system_units=system_units, user_units=user_units)
     async for entry in entries(reader, tail=since_lines or 0, follow=True):
-        line = format_entry(entry, mode)
-        if compiled is None or compiled.search(line):
-            yield line
+        if compiled is not None and not compiled.search(entry_message(entry)):
+            continue
+        yield format_entry(entry, mode)

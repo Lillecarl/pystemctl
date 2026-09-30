@@ -85,43 +85,30 @@ def _report(args: argparse.Namespace, name: str, outcome: _Outcome) -> int:
     result = outcome.props.get("Result")
     status = outcome.props.get("ExecMainStatus")
 
-    # A collecting unit is unloaded the moment it stops, which resets the
-    # .service interface -- Result reads back "success" and Type an empty
-    # string. A stale success is worse than no answer, so treat the reset
-    # interface as "no result recorded" rather than reporting a false zero.
-    if not outcome.matched and not outcome.props.get("Type"):
-        print(
-            f"pystemctl: {name}: no result recorded; the unit was collected on "
-            "stop, which discards its exit status (start it with a --tag, or "
-            "with --no-collect, to keep the result)",
-            file=sys.stderr,
-        )
-        return 1
+    if outcome.matched:
+        code = 0
+    elif result == "exit-code" and isinstance(status, int) and status:
+        code = status
+    elif result not in (None, "success"):
+        code = 1
+    else:
+        code = 0
+
+    payload = {
+        "unit": name,
+        "active_state": outcome.props.get("ActiveState"),
+        "result": result,
+        "status": status,
+        "matched": outcome.matched,
+        "exit_code": code,
+    }
 
     if args.json:
-        print(
-            json.dumps(
-                jsonable(
-                    {
-                        "unit": name,
-                        "active_state": outcome.props.get("ActiveState"),
-                        "result": result,
-                        "status": status,
-                        "matched": outcome.matched,
-                    }
-                )
-            )
-        )
+        print(json.dumps(jsonable(payload)))
     elif outcome.matched:
         print(f"pystemctl: {name}: pattern matched", file=sys.stderr)
 
-    if outcome.matched:
-        return 0
-    if result == "exit-code" and isinstance(status, int) and status:
-        return status
-    if result not in (None, "success"):
-        return 1
-    return 0
+    return code
 
 
 class _NoTimeout:

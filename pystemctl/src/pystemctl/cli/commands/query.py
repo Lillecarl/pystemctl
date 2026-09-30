@@ -16,45 +16,64 @@ from ...render import format_property_value
 from ..helpers import jsonable
 
 
+def _query_states(
+    args: argparse.Namespace,
+    results: Sequence[tuple[str, str]],
+    *,
+    expected: set[str],
+    exit_code: int,
+) -> int:
+    """Print a per-unit state, as lines or as JSON, and set the exit status.
+
+    The exit status is non-zero when any unit is not in ``expected``, and is
+    reported the same way whether or not JSON was asked for.
+    """
+    failed = any(state not in expected for _name, state in results)
+    if args.json:
+        print(json.dumps([{"unit": name, "state": state} for name, state in results]))
+    else:
+        for _name, state in results:
+            print(state)
+    return exit_code if failed else 0
+
+
 async def cmd_is_active(bus: Bus, args: argparse.Namespace) -> int:
-    exit_code = 0
-    for raw in args.units:
-        state = await sd.unit_active_state(bus, sd.normalize_unit_name(raw))
-        print(state)
-        if state != "active":
-            exit_code = 3
-    return exit_code
+    results = [
+        (sd.normalize_unit_name(raw), await sd.unit_active_state(bus, sd.normalize_unit_name(raw)))
+        for raw in args.units
+    ]
+    return _query_states(args, results, expected={"active"}, exit_code=3)
 
 
 async def cmd_is_failed(bus: Bus, args: argparse.Namespace) -> int:
-    exit_code = 0
-    for raw in args.units:
-        state = await sd.unit_active_state(bus, sd.normalize_unit_name(raw))
-        print("failed" if state == "failed" else state)
-        if state != "failed":
-            exit_code = 1
-    return exit_code
+    results = [
+        (sd.normalize_unit_name(raw), await sd.unit_active_state(bus, sd.normalize_unit_name(raw)))
+        for raw in args.units
+    ]
+    return _query_states(args, results, expected={"failed"}, exit_code=1)
 
 
 async def cmd_is_enabled(bus: Bus, args: argparse.Namespace) -> int:
     enabled_states = {"enabled", "enabled-runtime", "linked", "linked-runtime", "alias"}
-    exit_code = 0
+    results: list[tuple[str, str]] = []
     for raw in args.units:
         name = sd.normalize_unit_name(raw)
         try:
             state = await sd.get_unit_file_state(bus, name)
         except DBusErrorResponse:
             state = "not-found"
-        print(state or "not-found")
-        if state not in enabled_states:
-            exit_code = 1
-    return exit_code
+        results.append((name, state or "not-found"))
+    return _query_states(args, results, expected=enabled_states, exit_code=1)
 
 
 async def cmd_enable(bus: Bus, args: argparse.Namespace) -> int:
+    report: list[dict[str, object]] = []
     for raw in args.units:
         name = sd.normalize_unit_name(raw)
         changes = await sd.enable_unit(bus, name)
+        report.append({"unit": name, "changes": [list(change) for change in changes]})
+        if args.json:
+            continue
         if not changes:
             print(f"{name} was already enabled.")
         for change_type, _filename, destination in changes:
@@ -62,22 +81,31 @@ async def cmd_enable(bus: Bus, args: argparse.Namespace) -> int:
                 print(f"Created symlink {destination} -> {name}")
             else:
                 print(f"{change_type} {destination}")
+    if args.json:
+        print(json.dumps(report))
     return 0
 
 
 async def cmd_disable(bus: Bus, args: argparse.Namespace) -> int:
+    report: list[dict[str, object]] = []
     for raw in args.units:
         name = sd.normalize_unit_name(raw)
         changes = await sd.disable_unit(bus, name)
+        report.append({"unit": name, "changes": [list(change) for change in changes]})
+        if args.json:
+            continue
         for change_type, _filename, destination in changes:
             if change_type == "unlink":
                 print(f"Removed {destination}")
             else:
                 print(f"{change_type} {destination}")
+    if args.json:
+        print(json.dumps(report))
     return 0
 
 
 async def cmd_cat(bus: Bus, args: argparse.Namespace) -> int:
+    report: list[dict[str, object]] = []
     for raw in args.units:
         name = sd.normalize_unit_name(raw)
         props = await sd.unit_properties(bus, name)
@@ -87,14 +115,25 @@ async def cmd_cat(bus: Bus, args: argparse.Namespace) -> int:
             paths.append(fragment)
         paths.extend(props.get("DropInPaths", []))
         if not paths:
-            print(f"No files found for {name}.", file=sys.stderr)
+            report.append({"unit": name, "files": []})
+            if not args.json:
+                print(f"No files found for {name}.", file=sys.stderr)
             continue
+        files: list[dict[str, str]] = []
         for path in paths:
-            print(f"# {path}")
             try:
-                print(Path(path).read_text())
+                content = Path(path).read_text()
             except OSError as error:
-                print(f"# unable to read: {error}", file=sys.stderr)
+                if not args.json:
+                    print(f"# {path}\n# unable to read: {error}", file=sys.stderr)
+                continue
+            files.append({"path": path, "content": content})
+            if not args.json:
+                print(f"# {path}")
+                print(content)
+        report.append({"unit": name, "files": files})
+    if args.json:
+        print(json.dumps(report))
     return 0
 
 
@@ -125,6 +164,8 @@ async def cmd_show(bus: Bus, args: argparse.Namespace) -> int:
     return 0
 
 
-async def cmd_daemon_reload(bus: Bus, _args: argparse.Namespace) -> int:
+async def cmd_daemon_reload(bus: Bus, args: argparse.Namespace) -> int:
     await sd.reload_manager(bus)
+    if args.json:
+        print(json.dumps({"reloaded": True}))
     return 0

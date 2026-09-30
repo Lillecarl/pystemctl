@@ -58,6 +58,11 @@ async def _replay(name: str, args: argparse.Namespace, replay: int) -> None:
     pattern = re.compile(args.grep) if args.grep else None
     reader = jr.open_reader(system_units=system_units, user_units=user_units)
     async for entry in jr.entries(reader, tail=replay):
+        if args.json:
+            # A whole entry, so a caller gets fields the plain line drops.
+            if pattern is None or pattern.search(jr.entry_message(entry)):
+                print(jr.format_entry(entry, "json"), flush=True)
+            continue
         line = jr.format_entry(entry, "cat")
         if pattern is None or pattern.search(line):
             print(line, flush=True)
@@ -71,11 +76,13 @@ async def _stream(
     group: anyio.abc.TaskGroup,
 ) -> None:
     system_units, user_units = _unit_groups([name], args.scope)
+    # --grep matches the plain text of a line even in JSON mode, so the
+    # pattern is applied by follow_lines before formatting.
     async for line in jr.follow_lines(
         system_units=system_units,
         user_units=user_units,
         pattern=args.grep,
-        mode="cat",
+        mode="json" if args.json else "cat",
         since_lines=replay,
     ):
         print(line, flush=True)
