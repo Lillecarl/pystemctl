@@ -56,3 +56,27 @@ def test_apply_cli_overrides_is_identity_without_flags() -> None:
     args = type("A", (), {"nice": None, "tags": [], "type": None, "description": None,
                           "working_directory": None, "slice_name": None, "runtime_max": None})()
     assert profiles.apply_cli_overrides(profile, args) is profile
+
+
+def test_choose_collect_tagged_job_is_kept() -> None:
+    assert profiles.choose_collect(None, ["nix-build"]) is False
+
+
+def test_choose_collect_untagged_job_is_collected() -> None:
+    assert profiles.choose_collect(None, []) is True
+
+
+def test_choose_collect_explicit_flag_wins() -> None:
+    assert profiles.choose_collect(True, ["nix-build"]) is True
+    assert profiles.choose_collect(False, []) is False
+
+
+def test_profile_collect_defaults_to_unset() -> None:
+    assert profiles.Profile(name="p").collect is None
+
+
+def test_profile_collect_can_be_pinned() -> None:
+    from pathlib import Path
+
+    profile = profiles._profile_from_table("p", {"collect": False}, Path("x"))
+    assert profile.collect is False

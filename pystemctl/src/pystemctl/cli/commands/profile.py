@@ -56,7 +56,7 @@ async def cmd_profile(_bus: Bus, args: argparse.Namespace) -> int:
                     "nice": profile.nice,
                     "runtime_max": profile.runtime_max_sec,
                     "remain_after_exit": profile.remain_after_exit,
-                    "no_collect": profile.no_collect,
+                    "collect": profile.collect,
                     "properties": {name: value for name, (_sig, value) in profile.properties.items()},
                 }
             )

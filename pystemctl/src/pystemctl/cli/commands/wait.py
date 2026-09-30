@@ -17,6 +17,9 @@ from ...errors import PystemctlError
 from ..helpers import jsonable
 
 
+DEFAULT_REPLAY = 200
+
+
 @dataclass
 class _Outcome:
     props: dict[str, Any] = field(default_factory=dict)
@@ -57,11 +60,14 @@ async def _until_pattern_then_cancel(
     name: str, args: argparse.Namespace, outcome: _Outcome, group: anyio.abc.TaskGroup
 ) -> None:
     system_units, user_units = _unit_groups([name], args.scope)
+    # A watcher is usually attached after the job starts, so replay recent
+    # output by default; starting at the tail would miss what already printed.
+    since_lines = args.lines if args.lines is not None else DEFAULT_REPLAY
     async for line in jr.follow_lines(
         system_units=system_units,
         user_units=user_units,
         pattern=args.grep,
-        since_lines=args.lines,
+        since_lines=since_lines,
     ):
         print(line, flush=True)
         outcome.matched = True
@@ -85,8 +91,9 @@ def _report(args: argparse.Namespace, name: str, outcome: _Outcome) -> int:
     # interface as "no result recorded" rather than reporting a false zero.
     if not outcome.matched and not outcome.props.get("Type"):
         print(
-            f"pystemctl: {name}: no result recorded; a collected unit loses its "
-            "exit status (start the job with --no-collect if it is needed)",
+            f"pystemctl: {name}: no result recorded; the unit was collected on "
+            "stop, which discards its exit status (start it with a --tag, or "
+            "with --no-collect, to keep the result)",
             file=sys.stderr,
         )
         return 1

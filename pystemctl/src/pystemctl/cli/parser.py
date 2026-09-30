@@ -56,7 +56,8 @@ def build_parser() -> argparse.ArgumentParser:
         action="append",
         default=[],
         metavar="TAG",
-        help="tag the job; query it back with 'pystemctl jobs --tag'",
+        help="tag the job and keep it after it stops, so it can be found with "
+        "'pystemctl jobs --tag' and waited on with 'pystemctl wait'",
     )
     run.add_argument(
         "--session",
@@ -66,7 +67,20 @@ def build_parser() -> argparse.ArgumentParser:
     run.add_argument("--property", "-P", action="append", default=[], metavar="NAME=VALUE")
     run.add_argument("--type", default="simple", choices=["simple", "exec", "oneshot", "idle"])
     run.add_argument("--remain-after-exit", action="store_true")
-    run.add_argument("--no-collect", action="store_true", help="keep the unit after it exits")
+    collect = run.add_mutually_exclusive_group()
+    collect.add_argument(
+        "--collect",
+        dest="collect",
+        action="store_true",
+        default=None,
+        help="unload the unit once it stops (default unless a tag is set)",
+    )
+    collect.add_argument(
+        "--no-collect",
+        dest="collect",
+        action="store_false",
+        help="keep the unit after it exits, so its result stays readable",
+    )
     run.add_argument("--replace", action="store_true", help="replace an existing unit of this name")
     run.add_argument("--no-block", action="store_true", help="do not wait for the start job")
     run.add_argument("--wait", action="store_true", help="wait until the command exits")
@@ -145,7 +159,12 @@ def build_parser() -> argparse.ArgumentParser:
     wait.add_argument("--timeout", type=float, metavar="SECONDS")
     wait.add_argument("--grep", metavar="PATTERN", help="return early when a log line matches")
     wait.add_argument(
-        "-n", "--lines", type=int, default=0, metavar="N", help="replay N lines before following"
+        "-n",
+        "--lines",
+        type=int,
+        default=None,
+        metavar="N",
+        help="replay N lines before following (default: 200)",
     )
 
     profile = _add(subparsers, "profile", commands.cmd_profile, "inspect command profiles")

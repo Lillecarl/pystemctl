@@ -47,7 +47,7 @@ class Profile:
     nice: int | None = None
     runtime_max_sec: float | None = None
     remain_after_exit: bool = False
-    no_collect: bool = False
+    collect: bool | None = None
     properties: Mapping[str, tuple[str, Any]] = field(default_factory=dict)
 
 
@@ -95,7 +95,7 @@ def _profile_from_table(name: str, table: Mapping[str, Any], path: Path) -> Prof
         "nice",
         "runtime_max",
         "remain_after_exit",
-        "no_collect",
+        "collect",
         "properties",
     }
     unknown = set(table) - known
@@ -123,7 +123,7 @@ def _profile_from_table(name: str, table: Mapping[str, Any], path: Path) -> Prof
         nice=table.get("nice"),
         runtime_max_sec=table.get("runtime_max"),
         remain_after_exit=bool(table.get("remain_after_exit", False)),
-        no_collect=bool(table.get("no_collect", False)),
+        collect=table.get("collect"),
         properties=properties,
     )
 
@@ -172,6 +172,18 @@ def resolve_working_directory(profile: Profile, *, cwd: str | None = None) -> st
     if profile.working_directory_mode == "caller":
         return cwd if cwd is not None else os.getcwd()
     return profile.working_directory
+
+
+def choose_collect(explicit: bool | None, tags: Sequence[str]) -> bool:
+    """Decide whether a job is collected once it stops.
+
+    An explicit --collect/--no-collect wins. Otherwise a tagged job is kept,
+    because a caller who tags a job intends to find and wait on it later, and a
+    collected unit loses its exit status the moment it stops.
+    """
+    if explicit is not None:
+        return explicit
+    return not tags
 
 
 def apply_cli_overrides(profile: Profile, args: Any) -> Profile:

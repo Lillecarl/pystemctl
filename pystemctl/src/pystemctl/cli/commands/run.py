@@ -50,7 +50,7 @@ async def cmd_run(bus: Bus, args: argparse.Namespace) -> int:
     nice = args.nice
     runtime_max = args.runtime_max
     remain_after_exit = args.remain_after_exit
-    no_collect = args.no_collect
+    collect = args.collect
 
     if profile is not None:
         inherited = profiles.resolve_environment(profile)
@@ -64,7 +64,10 @@ async def cmd_run(bus: Bus, args: argparse.Namespace) -> int:
         nice = nice if nice is not None else profile.nice
         runtime_max = runtime_max if runtime_max is not None else profile.runtime_max_sec
         remain_after_exit = remain_after_exit or profile.remain_after_exit
-        no_collect = no_collect or profile.no_collect
+        if collect is None:
+            collect = profile.collect
+
+    collect = profiles.choose_collect(collect, tags)
 
     properties.update(parse_property(item) for item in args.property)
 
@@ -78,7 +81,7 @@ async def cmd_run(bus: Bus, args: argparse.Namespace) -> int:
         environment=environment,
         properties=properties,
         remain_after_exit=remain_after_exit,
-        collect=not no_collect,
+        collect=collect,
         runtime_max_sec=runtime_max,
         nice=nice,
         slice_name=slice_name,
