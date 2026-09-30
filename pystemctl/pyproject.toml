@@ -1,0 +1,27 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "pystemctl"
+version = "0.1.0"
+description = "Python reimplementation of systemctl and journalctl, with helpers for ephemeral user units"
+requires-python = ">=3.11"
+dependencies = [
+    "anyio>=4",
+    "jeepney>=0.9",
+    "systemd-python",
+]
+
+[project.optional-dependencies]
+test = ["pytest"]
+
+[project.scripts]
+pystemctl = "pystemctl.cli:main"
+pyjournalctl = "pystemctl.cli:journalctl_main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/pystemctl"]
+
+[tool.hatch.build.targets.sdist]
+include = ["src/pystemctl", "tests", "pyproject.toml"]
