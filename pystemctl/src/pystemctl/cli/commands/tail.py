@@ -14,6 +14,7 @@ from ... import journal as jr
 from ... import systemd as sd
 from ...bus import Bus, Scope
 from ...errors import PystemctlError
+from ..helpers import resolve_target
 
 DEFAULT_REPLAY = 200
 
@@ -25,7 +26,7 @@ class _Outcome:
 
 
 async def cmd_tail(bus: Bus, args: argparse.Namespace) -> int:
-    name = sd.normalize_unit_name(args.unit)
+    name = await resolve_target(bus, args)
     props = await sd.try_unit_properties(bus, name)
     if not props or props.get("LoadState") == "not-found":
         raise PystemctlError(f"Unit {name} not found.")

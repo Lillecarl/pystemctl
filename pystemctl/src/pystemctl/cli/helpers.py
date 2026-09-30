@@ -5,11 +5,38 @@ from __future__ import annotations
 import argparse
 import datetime as dt
 import json
+import sys
 from collections.abc import Sequence
 from typing import Any
 
+from .. import systemd as sd
+from ..bus import Bus
 from ..errors import PystemctlError
 from ..systemd import Unit
+
+
+async def resolve_target(bus: Bus, args: argparse.Namespace) -> str:
+    """Return the unit the command should act on.
+
+    A unit name is used as given. Tags select the newest matching job; when
+    several matched, the others are named on stderr so a surprising choice is
+    visible rather than silent.
+    """
+    tags = getattr(args, "tags", None)
+    if not tags and getattr(args, "unit", None):
+        return sd.normalize_unit_name(args.unit)
+
+    chosen, others = await sd.resolve(bus, tags=tags or ())
+    if chosen is None:
+        raise PystemctlError("no unit or tag given")
+    if others:
+        print(
+            f"pystemctl: {len(others) + 1} jobs match {', '.join(tags)}; "
+            f"using the newest, {chosen.name} "
+            f"(also: {', '.join(job.name for job in others)})",
+            file=sys.stderr,
+        )
+    return chosen.name
 
 
 def emit(args: argparse.Namespace, text: str | None, payload: Any) -> None:

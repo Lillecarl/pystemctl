@@ -7,7 +7,8 @@ from dataclasses import dataclass
 from typing import Any
 
 from ..bus import UNIT_INTERFACE, Bus
-from .tags import read_tags
+from ..errors import PystemctlError
+from .tags import session_id, read_tags
 from .units import Unit, environment_of, list_units, unit_interface
 
 
@@ -59,3 +60,50 @@ async def collect_jobs(
         jobs.append(Job(unit=unit, tags=tags, session=unit_session, environment=environment, props=props))
     jobs.sort(key=lambda job: job.name)
     return jobs
+
+
+def _started_at(job: Job) -> int:
+    for key in ("ActiveEnterTimestamp", "ExecMainStartTimestamp", "StateChangeTimestamp"):
+        value = job.props.get(key)
+        if isinstance(value, int):
+            return value
+    return 0
+
+
+async def resolve(
+    bus: Bus,
+    *,
+    unit: str | None = None,
+    tags: Sequence[str] = (),
+    session: str | None = None,
+    include_inactive: bool = True,
+) -> tuple[Job | None, list[Job]]:
+    """Turn a unit name or a set of tags into one job.
+
+    A unit name is taken as given. Tags are a filter: the most recently
+    started match wins, because tags are not unique and the usual case is a
+    tag reused across a series of jobs. The caller decides what to do about
+    the other matches.
+    """
+    if unit is not None:
+        return None, []
+    if not tags:
+        raise PystemctlError("give a unit name or at least one --tag")
+
+    jobs = await collect_jobs(
+        bus,
+        required_tags=tags,
+        session=session if session is not None else session_id(),
+        include_inactive=include_inactive,
+    )
+    if not jobs:
+        # Retry without the session filter so a job from another session at
+        # least reports as found-but-not-mine rather than not found.
+        jobs = await collect_jobs(
+            bus, required_tags=tags, session=None, include_inactive=include_inactive
+        )
+    if not jobs:
+        raise PystemctlError(f"no job tagged {', '.join(tags)}")
+
+    jobs.sort(key=_started_at, reverse=True)
+    return jobs[0], jobs[1:]

@@ -155,7 +155,7 @@ def build_parser() -> argparse.ArgumentParser:
         "wait",
         commands.cmd_wait,
         "wait for a unit to finish or log a match",
-        option_groups=[_watch_options(), _replay_option(200), _single_unit_positional()],
+        option_groups=[_watch_options(), _replay_option(200), _target_selector()],
     )
 
     tail = _add(
@@ -167,7 +167,7 @@ def build_parser() -> argparse.ArgumentParser:
             _replay_option(200),
             _watch_options(),
             _follow_option(),
-            _single_unit_positional(),
+            _target_selector(),
         ],
     )
     tail.add_argument(
@@ -234,9 +234,19 @@ def _unit_positional(*, required: bool = True) -> argparse.ArgumentParser:
     return parser
 
 
-def _single_unit_positional() -> argparse.ArgumentParser:
+def _target_selector() -> argparse.ArgumentParser:
+    """A single unit, by name or by tag. The two are mutually exclusive."""
     parser = argparse.ArgumentParser(add_help=False)
-    parser.add_argument("unit", metavar="UNIT")
+    group = parser.add_mutually_exclusive_group(required=True)
+    group.add_argument("unit", nargs="?", metavar="UNIT")
+    group.add_argument(
+        "--tag",
+        "-T",
+        dest="tags",
+        action="append",
+        metavar="TAG",
+        help="select the newest job carrying every given tag",
+    )
     return parser
 
 
@@ -283,7 +293,13 @@ def _job_filter_options() -> argparse.ArgumentParser:
     """The tag and session filters shared by ``run`` and ``jobs``."""
     parser = argparse.ArgumentParser(add_help=False)
     parser.add_argument(
-        "--tag", "-T", dest="tags", action="append", default=[], metavar="TAG"
+        "--tag",
+        "-T",
+        dest="tags",
+        action="append",
+        default=[],
+        metavar="TAG",
+        help="tag a job, or select the newest job carrying every given tag",
     )
     parser.add_argument("--session", metavar="ID")
     return parser

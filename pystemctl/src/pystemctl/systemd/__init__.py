@@ -19,7 +19,7 @@ from .control import (
     wait_job,
     wait_until_finished,
 )
-from .jobs import Job, collect_jobs
+from .jobs import Job, collect_jobs, resolve
 from .transient import (
     TransientSpec,
     build_transient_properties,
@@ -61,6 +61,7 @@ __all__ = [
     "replace_transient",
     "reload_unit",
     "reset_failed_unit",
+    "resolve",
     "resolve_executable",
     "restart_unit",
     "start_transient",
