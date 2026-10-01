@@ -7,10 +7,14 @@ import datetime as dt
 import json
 import sys
 from collections.abc import Sequence
+from dataclasses import dataclass, field
 from typing import Any
 
+import anyio
+
+from .. import journal as jr
 from .. import systemd as sd
-from ..bus import Bus
+from ..bus import Bus, Scope
 from ..errors import PystemctlError
 from ..systemd import Unit
 
@@ -37,6 +41,19 @@ async def resolve_target(bus: Bus, args: argparse.Namespace) -> str:
             file=sys.stderr,
         )
     return chosen.name
+
+
+async def resolve_existing(bus: Bus, args: argparse.Namespace) -> tuple[str, dict[str, Any]]:
+    """Resolve a target and read its properties, failing if it is not loaded.
+
+    Returns the unit name and its property map, so a caller does not fetch the
+    same properties twice.
+    """
+    name = await resolve_target(bus, args)
+    props = await sd.try_unit_properties(bus, name)
+    if not props or props.get("LoadState") == "not-found":
+        raise PystemctlError(f"Unit {name} not found.")
+    return name, props
 
 
 def emit(args: argparse.Namespace, text: str | None, payload: Any) -> None:
@@ -116,9 +133,85 @@ def unit_payload_from_props(name: str, props: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+class NoTimeout:
+    """A drop-in for ``anyio.move_on_after`` that never fires."""
+
+    def __enter__(self) -> "NoTimeout":
+        return self
+
+    def __exit__(self, *exc: object) -> bool:
+        return False
+
+
 def jsonable(value: Any) -> Any:
     if isinstance(value, bytes):
         return value.decode("utf-8", "replace")
     if isinstance(value, (list, tuple)):
         return [jsonable(item) for item in value]
     return value
+
+
+@dataclass
+class WatchOutcome:
+    """What a watcher learns before it stops.
+
+    ``matched`` is set when a pattern was found. ``props`` holds the unit
+    properties read at the end, which carry the result and exit status.
+    """
+
+    matched: bool = False
+    props: dict[str, Any] = field(default_factory=dict)
+
+
+def unit_groups(units: Sequence[str], scope: Scope) -> tuple[list[str], list[str]]:
+    """Split unit names into the (system, user) pair the journal reader wants."""
+    if scope is Scope.SYSTEM:
+        return list(units), []
+    return [], list(units)
+
+
+def exit_code_from(props: dict[str, Any]) -> int:
+    """Map a stopped unit's properties to the shell exit code for its result.
+
+    A unit killed by a signal, timed out, or that failed for another reason
+    reports a result other than "success" but no exit-code status, so it maps
+    to 1. Only a service's own non-zero exit carries its number.
+    """
+    result = props.get("Result")
+    status = props.get("ExecMainStatus")
+    if result == "exit-code" and isinstance(status, int) and status:
+        return status
+    return 0 if result in (None, "success") else 1
+
+
+async def follow_matching(
+    name: str,
+    args: argparse.Namespace,
+    outcome: WatchOutcome,
+    group: anyio.abc.TaskGroup,
+    *,
+    replay: int,
+    stop_on_match: bool,
+) -> None:
+    """Stream a unit's output into stdout, recording a pattern match.
+
+    Shared by ``wait`` and ``tail``. With ``stop_on_match`` the first matching
+    line ends the watch; otherwise every line is printed and only a match is
+    recorded. The pattern is matched against each entry's MESSAGE, so --grep
+    means the same thing whatever the output mode is.
+    """
+    system_units, user_units = unit_groups([name], args.scope)
+    async for line in jr.follow_lines(
+        system_units=system_units,
+        user_units=user_units,
+        pattern=args.grep,
+        mode="json" if getattr(args, "json", False) else "cat",
+        since_lines=replay,
+    ):
+        print(line, flush=True)
+        if args.grep:
+            outcome.matched = True
+            if stop_on_match:
+                group.cancel_scope.cancel()
+                return
+    group.cancel_scope.cancel()

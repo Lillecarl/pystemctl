@@ -5,35 +5,28 @@ from __future__ import annotations
 import argparse
 import json
 import sys
-from dataclasses import dataclass, field
-from typing import Any
 
 import anyio
 
-from ... import journal as jr
 from ... import systemd as sd
-from ...bus import Bus, Scope
-from ...errors import PystemctlError
-from ..helpers import jsonable, resolve_target
-
+from ...bus import Bus
+from ..helpers import (
+    NoTimeout,
+    WatchOutcome,
+    exit_code_from,
+    follow_matching,
+    jsonable,
+    resolve_existing,
+)
 
 DEFAULT_REPLAY = 200
 
 
-@dataclass
-class _Outcome:
-    props: dict[str, Any] = field(default_factory=dict)
-    matched: bool = False
-
-
 async def cmd_wait(bus: Bus, args: argparse.Namespace) -> int:
-    name = await resolve_target(bus, args)
-    props = await sd.try_unit_properties(bus, name)
-    if not props or props.get("LoadState") == "not-found":
-        raise PystemctlError(f"Unit {name} not found.")
+    name, _ = await resolve_existing(bus, args)
 
-    outcome = _Outcome()
-    scope = anyio.move_on_after(args.timeout) if args.timeout is not None else _NoTimeout()
+    outcome = WatchOutcome()
+    scope = anyio.move_on_after(args.timeout) if args.timeout is not None else NoTimeout()
     with scope:
         if args.grep:
             # Whichever finishes first ends the wait: the pattern match, or the
@@ -50,49 +43,26 @@ async def cmd_wait(bus: Bus, args: argparse.Namespace) -> int:
 
 
 async def _until_finished_then_cancel(
-    bus: Bus, name: str, outcome: _Outcome, group: anyio.abc.TaskGroup
+    bus: Bus, name: str, outcome: WatchOutcome, group: anyio.abc.TaskGroup
 ) -> None:
     outcome.props = await sd.wait_until_finished(bus, name)
     group.cancel_scope.cancel()
 
 
 async def _until_pattern_then_cancel(
-    name: str, args: argparse.Namespace, outcome: _Outcome, group: anyio.abc.TaskGroup
+    name: str, args: argparse.Namespace, outcome: WatchOutcome, group: anyio.abc.TaskGroup
 ) -> None:
-    system_units, user_units = _unit_groups([name], args.scope)
     # A watcher is usually attached after the job starts, so replay recent
     # output by default; starting at the tail would miss what already printed.
-    since_lines = args.lines if args.lines is not None else DEFAULT_REPLAY
-    async for line in jr.follow_lines(
-        system_units=system_units,
-        user_units=user_units,
-        pattern=args.grep,
-        since_lines=since_lines,
-    ):
-        print(line, flush=True)
-        outcome.matched = True
-        group.cancel_scope.cancel()
-        return
+    replay = args.lines if args.lines is not None else DEFAULT_REPLAY
+    await follow_matching(name, args, outcome, group, replay=replay, stop_on_match=True)
 
 
-def _unit_groups(units: list[str], scope: Scope) -> tuple[list[str], list[str]]:
-    if scope is Scope.SYSTEM:
-        return units, []
-    return [], units
-
-
-def _report(args: argparse.Namespace, name: str, outcome: _Outcome) -> int:
+def _report(args: argparse.Namespace, name: str, outcome: WatchOutcome) -> int:
     result = outcome.props.get("Result")
     status = outcome.props.get("ExecMainStatus")
 
-    if outcome.matched:
-        code = 0
-    elif result == "exit-code" and isinstance(status, int) and status:
-        code = status
-    elif result not in (None, "success"):
-        code = 1
-    else:
-        code = 0
+    code = 0 if outcome.matched else exit_code_from(outcome.props)
 
     payload = {
         "unit": name,
@@ -109,13 +79,3 @@ def _report(args: argparse.Namespace, name: str, outcome: _Outcome) -> int:
         print(f"pystemctl: {name}: pattern matched", file=sys.stderr)
 
     return code
-
-
-class _NoTimeout:
-    def __enter__(self) -> "_NoTimeout":
-        return self
-
-    def __exit__(self, *exc: object) -> bool:
-        return False
-
-    cancel_called = False
