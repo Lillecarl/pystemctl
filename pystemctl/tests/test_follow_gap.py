@@ -11,9 +11,7 @@ from functools import partial
 
 import anyio
 
-from pystemctl.journal.reader import entries
-
-APPEND = 1  # systemd.journal.APPEND; INVALIDATE is 2
+from pystemctl.journal.reader import _APPEND, entries
 
 
 class FakeReader:
@@ -56,7 +54,7 @@ class FakeReader:
         if self.appends:
             self.log.extend(self.appends)
             self.appends = []
-            return APPEND
+            return _APPEND
         return 0
 
 

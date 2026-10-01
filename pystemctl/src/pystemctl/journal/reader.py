@@ -19,6 +19,12 @@ from ..errors import PystemctlError
 if TYPE_CHECKING:
     from systemd import journal
 
+# sd_journal_wait returns one of these; the values are the ABI's, not a
+# choice. Imported as constants so following reads them without pulling in
+# libsystemd on every wake, and so the reader works without it installed.
+_APPEND = 1
+_INVALIDATE = 2
+
 
 def _journal_module() -> Any:
     try:
@@ -131,10 +137,9 @@ async def entries(
     else:
         await anyio.to_thread.run_sync(reader.seek_tail)
         await anyio.to_thread.run_sync(reader.get_previous)
-    journal = _journal_module()
     while True:
         changed = await anyio.to_thread.run_sync(reader.wait, 1.0)
-        if changed != journal.APPEND:
+        if changed != _APPEND:
             continue
         while True:
             entry = await anyio.to_thread.run_sync(reader.get_next)
