@@ -159,6 +159,12 @@ def build_parser() -> argparse.ArgumentParser:
     )
     jobs.add_argument("--any-session", action="store_true", help="list jobs from every session")
     jobs.add_argument("--all", "-a", action="store_true", help="include finished jobs")
+    jobs.add_argument(
+        "--follow",
+        "-f",
+        action="store_true",
+        help="emit a line whenever a job appears, changes, or goes away",
+    )
 
     _add(
         subparsers,

@@ -5,6 +5,9 @@ from __future__ import annotations
 import argparse
 import datetime as dt
 import json
+from collections.abc import Awaitable, Callable
+
+import anyio
 
 from ... import systemd as sd
 from ...bus import Bus
@@ -13,15 +16,26 @@ from ...systemd.jobs import Job
 from ...systemd.tags import session_id
 from ..helpers import jsonable, unit_payload
 
+Snapshot = Callable[[], Awaitable[list[Job]]]
+
+POLL_INTERVAL = 1.0
+
 
 async def cmd_jobs(bus: Bus, args: argparse.Namespace) -> int:
     session = None if args.any_session else (args.session or session_id())
-    jobs = await sd.collect_jobs(
-        bus,
-        required_tags=args.tags,
-        session=session,
-        include_inactive=args.all,
-    )
+
+    async def snapshot() -> list[Job]:
+        return await sd.collect_jobs(
+            bus,
+            required_tags=args.tags,
+            session=session,
+            include_inactive=args.all,
+        )
+
+    if args.follow:
+        return await _follow(snapshot, args)
+
+    jobs = await snapshot()
 
     if args.json:
         print(json.dumps([_job_payload(job) for job in jobs]))
@@ -30,6 +44,53 @@ async def cmd_jobs(bus: Bus, args: argparse.Namespace) -> int:
     if not jobs:
         return 1
 
+    print(_table(jobs))
+    return 0
+
+
+async def _follow(snapshot: Snapshot, args: argparse.Namespace) -> int:
+    """Emit a line per job added, changed, or removed, until interrupted.
+
+    State is polled: a single PropertiesChanged match cannot cover every
+    transient unit, and the AGE column implies a periodic refresh anyway.
+    """
+    seen: dict[str, dict[str, object]] = {}
+    while True:
+        jobs = {job.name: _job_payload(job) for job in await snapshot()}
+        for name, payload in jobs.items():
+            previous = seen.get(name)
+            if previous is None:
+                _emit_follow_line(args, "added", payload)
+            elif _fingerprint(previous) != _fingerprint(payload):
+                _emit_follow_line(args, "changed", payload)
+        for name in seen.keys() - jobs.keys():
+            _emit_follow_line(args, "removed", seen[name])
+        seen = jobs
+        await anyio.sleep(POLL_INTERVAL)
+
+
+def _fingerprint(payload: dict[str, object]) -> tuple[object, ...]:
+    # The fields that change while a job runs. An age tick alone is not a
+    # change worth a line.
+    return (
+        payload.get("active"),
+        payload.get("sub"),
+        payload.get("result"),
+        payload.get("exit_status"),
+        payload.get("main_pid"),
+    )
+
+
+def _emit_follow_line(args: argparse.Namespace, event: str, payload: dict[str, object]) -> None:
+    if args.json:
+        print(json.dumps({"event": event, "job": jsonable(payload)}), flush=True)
+        return
+    status = payload.get("result") or payload.get("sub") or ""
+    extra = f" {status}" if status else ""
+    print(f"{event:<7} {payload.get('unit')}{extra}", flush=True)
+
+
+def _table(jobs: list[Job]) -> str:
     rows = [
         [
             job.name,
@@ -41,8 +102,7 @@ async def cmd_jobs(bus: Bus, args: argparse.Namespace) -> int:
         ]
         for job in jobs
     ]
-    print(format_table(["UNIT", "ACTIVE", "STATUS", "AGE", "PID", "TAGS"], rows))
-    return 0
+    return format_table(["UNIT", "ACTIVE", "STATUS", "AGE", "PID", "TAGS"], rows)
 
 
 def _job_payload(job: Job) -> dict[str, object]:
