@@ -86,6 +86,11 @@ async def entries(
     tail: int | None = None,
     follow: bool = False,
 ) -> AsyncIterator[dict[str, Any]]:
+    # The cursor of the last entry read, so following can resume exactly where
+    # the replay stopped. Seeking to the tail again would drop every entry
+    # written between the replay and the follow attaching.
+    cursor: str | None = None
+
     if tail is not None:
         await anyio.to_thread.run_sync(reader.seek_tail)
         buffered: list[dict[str, Any]] = []
@@ -97,6 +102,7 @@ async def entries(
         for entry in reversed(buffered):
             if until is not None and entry["__REALTIME_TIMESTAMP"] > until:
                 continue
+            cursor = entry.get("__CURSOR", cursor)
             yield entry
     else:
         if since is not None:
@@ -109,6 +115,7 @@ async def entries(
                 break
             if until is not None and entry["__REALTIME_TIMESTAMP"] > until:
                 return
+            cursor = entry.get("__CURSOR", cursor)
             yield entry
         if not follow:
             return
@@ -116,8 +123,14 @@ async def entries(
     if not follow:
         return
 
-    await anyio.to_thread.run_sync(reader.seek_tail)
-    await anyio.to_thread.run_sync(reader.get_previous)
+    if cursor is not None:
+        # seek_cursor positions before the entry, so get_next returns the one
+        # just replayed; skip it before reading what follows.
+        await anyio.to_thread.run_sync(reader.seek_cursor, cursor)
+        await anyio.to_thread.run_sync(reader.get_next)
+    else:
+        await anyio.to_thread.run_sync(reader.seek_tail)
+        await anyio.to_thread.run_sync(reader.get_previous)
     journal = _journal_module()
     while True:
         changed = await anyio.to_thread.run_sync(reader.wait, 1.0)
