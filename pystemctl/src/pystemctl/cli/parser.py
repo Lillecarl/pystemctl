@@ -351,7 +351,11 @@ def build_parser() -> argparse.ArgumentParser:
         "status",
         commands.cmd_status,
         "show unit status",
-        option_groups=[_unit_positional(), _replay_option(10)],
+        option_groups=[
+            _unit_positional(required=False),
+            _job_filter_options(),
+            _replay_option(10),
+        ],
     )
     status.add_argument("--no-journal", action="store_true")
 
@@ -394,7 +398,8 @@ def build_parser() -> argparse.ArgumentParser:
         commands.cmd_logs,
         "show journal entries for units",
         option_groups=[
-            _unit_positional(),
+            _unit_positional(required=False),
+            _job_filter_options(),
             _journal_options(),
             _follow_option(),
             _replay_option(),

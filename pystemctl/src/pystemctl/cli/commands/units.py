@@ -10,7 +10,7 @@ from ... import systemd as sd
 from ...bus import Bus
 from ...errors import UnitNotFound
 from ...render import format_table, format_unit_status
-from ..helpers import jsonable, unit_payload, unit_payload_from_props
+from ..helpers import jsonable, resolve_units, unit_payload, unit_payload_from_props
 from .logs import journal_tail
 
 
@@ -65,8 +65,7 @@ async def cmd_list_unit_files(bus: Bus, args: argparse.Namespace) -> int:
 
 async def cmd_status(bus: Bus, args: argparse.Namespace) -> int:
     exit_code = 0
-    for raw in args.units:
-        name = sd.normalize_unit_name(raw)
+    for name in await resolve_units(bus, args):
         try:
             props = await sd.unit_properties(bus, name)
         except UnitNotFound:

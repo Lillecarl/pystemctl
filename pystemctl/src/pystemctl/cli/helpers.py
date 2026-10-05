@@ -43,6 +43,34 @@ async def resolve_target(bus: Bus, args: argparse.Namespace) -> str:
     return chosen.name
 
 
+async def resolve_units(bus: Bus, args: argparse.Namespace) -> list[str]:
+    """Unit names from the positionals plus the newest job matching --tag.
+
+    ``logs`` and ``status`` read any number of units, so tags resolve to one
+    more name on the list rather than replacing it. Several matches name the
+    others on stderr, the way resolve_target already does.
+    """
+    units = [sd.normalize_unit_name(raw) for raw in getattr(args, "units", None) or []]
+    tags = getattr(args, "tags", None) or []
+    if tags:
+        chosen, others = await sd.resolve(
+            bus, tags=tags, session=getattr(args, "session", None)
+        )
+        if chosen is None:
+            raise PystemctlError("give a unit name or at least one --tag")
+        if others:
+            print(
+                f"pystemctl: {len(others) + 1} jobs match {', '.join(tags)}; "
+                f"using the newest, {chosen.name} "
+                f"(also: {', '.join(job.name for job in others)})",
+                file=sys.stderr,
+            )
+        units.append(chosen.name)
+    if not units:
+        raise PystemctlError("give a unit name or at least one --tag")
+    return units
+
+
 async def resolve_existing(bus: Bus, args: argparse.Namespace) -> tuple[str, dict[str, Any]]:
     """Resolve a target and read its properties, failing if it is not loaded.
 

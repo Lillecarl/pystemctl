@@ -6,13 +6,12 @@ import argparse
 from collections.abc import Sequence
 
 from ... import journal as jr
-from ... import systemd as sd
 from ...bus import Bus, Scope
-from ..helpers import tail_count
+from ..helpers import resolve_units, tail_count
 
 
 async def cmd_logs(bus: Bus, args: argparse.Namespace) -> int:
-    units = [sd.normalize_unit_name(unit) for unit in args.units]
+    units = await resolve_units(bus, args)
     system_units, user_units = unit_groups(units, args.scope)
     since = jr.parse_timestamp(args.since) if args.since else None
     until = jr.parse_timestamp(args.until) if args.until else None
