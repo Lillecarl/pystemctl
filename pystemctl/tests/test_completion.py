@@ -4,13 +4,14 @@ import argparse
 import contextlib
 from collections.abc import AsyncIterator, Sequence
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import pytest
 
 from pystemctl import cli
 from pystemctl.bus import Scope
 from pystemctl.cli.parser import (
+    CompletableAction,
     _env_completer,
     _executable_completer,
     _priority_completer,
@@ -54,10 +55,10 @@ def _subparser(parser: argparse.ArgumentParser, name: str) -> argparse.ArgumentP
     raise AssertionError(f"no subparsers in {parser.prog}")
 
 
-def _action(parser: argparse.ArgumentParser, dest: str) -> argparse.Action:
+def _action(parser: argparse.ArgumentParser, dest: str) -> CompletableAction:
     for action in parser._actions:
         if action.dest == dest:
-            return action
+            return cast(CompletableAction, action)
     raise AssertionError(f"no {dest!r} in {parser.prog}")
 
 
@@ -94,9 +95,7 @@ def test_register_completers_prefers_command_overrides() -> None:
     assert _action(run, "command").completer is _executable_completer
     # run's --type keeps argparse choices; no custom completer may shadow them.
     assert getattr(_action(run, "type"), "completer", None) is None
-    assert _action(_subparser(parser, "show"), "properties").completer is (
-        _show_property_completer
-    )
+    assert _action(_subparser(parser, "show"), "properties").completer is (_show_property_completer)
     assert _action(_subparser(parser, "logs"), "priority").completer is _priority_completer
 
 
@@ -140,9 +139,7 @@ def _row(name: str) -> tuple[Any, ...]:
 def test_unit_completer_lists_matching_prefix(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    scopes = _connect_recorded_scopes(
-        monkeypatch, [_row("alpha.service"), _row("beta.service")]
-    )
+    scopes = _connect_recorded_scopes(monkeypatch, [_row("alpha.service"), _row("beta.service")])
     assert _unit_completer("alp") == ["alpha.service"]
     assert scopes == [Scope.USER]
 
@@ -260,16 +257,12 @@ def test_show_property_completer_reads_target_unit(
 
 def test_env_completer_stops_at_equals(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("PYSTEMCTL_TEST_COMPLETION_MARKER", "1")
-    assert _env_completer("PYSTEMCTL_TEST_COMPLETION_M") == [
-        "PYSTEMCTL_TEST_COMPLETION_MARKER"
-    ]
+    assert _env_completer("PYSTEMCTL_TEST_COMPLETION_M") == ["PYSTEMCTL_TEST_COMPLETION_MARKER"]
     assert _env_completer("PYSTEMCTL_TEST_COMPLETION_MARKER=") == []
     assert _env_completer("PYSTEMCTL_TEST_COMPLETION_MARKER=x") == []
 
 
-def test_executable_completer_scans_path(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
+def test_executable_completer_scans_path(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     script = tmp_path / "my-probe-tool"
     script.write_text("#!/bin/sh\n")
     script.chmod(0o755)

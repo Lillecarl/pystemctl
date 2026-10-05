@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import os
 from collections.abc import Awaitable, Callable, Iterable, Sequence
+from typing import Protocol, cast
 
 from .. import journal as jr
 from ..bus import Bus, Scope
@@ -13,12 +14,18 @@ from . import commands
 _Handler = Callable[[Bus, argparse.Namespace], Awaitable[int]]
 
 
+class CompletableAction(Protocol):
+    """An argparse action carrying argcomplete's dynamic completer hook."""
+
+    completer: Callable[..., list[str]] | None
+
+
 def _profile_completer(**_: object) -> list[str]:
     from ..profiles import load_profiles
 
     try:
         return sorted(load_profiles())
-    except Exception:
+    except Exception:  # noqa: BLE001 -- completion must never fail loudly
         return []
 
 
@@ -44,14 +51,12 @@ def _complete_from_bus(
                 return await query(bus)
 
         names = anyio.run(run)
-    except Exception:
+    except Exception:  # noqa: BLE001 -- a traceback on TAB is worse than no suggestions
         return []
     return sorted({name for name in names if name.startswith(prefix)})
 
 
-def _unit_completer(
-    prefix: str = "", parsed_args: object = None, **_: object
-) -> list[str]:
+def _unit_completer(prefix: str = "", parsed_args: object = None, **_: object) -> list[str]:
     """Unit names from the relevant service manager."""
     from ..systemd.units import list_units
 
@@ -61,9 +66,7 @@ def _unit_completer(
     return _complete_from_bus(prefix, parsed_args, query)
 
 
-def _unit_file_completer(
-    prefix: str = "", parsed_args: object = None, **_: object
-) -> list[str]:
+def _unit_file_completer(prefix: str = "", parsed_args: object = None, **_: object) -> list[str]:
     """Installed unit file names, for enable and disable."""
     from ..systemd.units import list_unit_files
 
@@ -73,9 +76,7 @@ def _unit_file_completer(
     return _complete_from_bus(prefix, parsed_args, query)
 
 
-def _slice_completer(
-    prefix: str = "", parsed_args: object = None, **_: object
-) -> list[str]:
+def _slice_completer(prefix: str = "", parsed_args: object = None, **_: object) -> list[str]:
     """Slice names from the relevant service manager."""
     from ..systemd.units import list_units
 
@@ -85,9 +86,7 @@ def _slice_completer(
     return _complete_from_bus(prefix, parsed_args, query)
 
 
-def _tags_completer(
-    prefix: str = "", parsed_args: object = None, **_: object
-) -> list[str]:
+def _tags_completer(prefix: str = "", parsed_args: object = None, **_: object) -> list[str]:
     """Tags carried by any job, whatever the session."""
     from ..systemd.jobs import collect_jobs
 
@@ -98,9 +97,7 @@ def _tags_completer(
     return _complete_from_bus(prefix, parsed_args, query)
 
 
-def _session_completer(
-    prefix: str = "", parsed_args: object = None, **_: object
-) -> list[str]:
+def _session_completer(prefix: str = "", parsed_args: object = None, **_: object) -> list[str]:
     """Session ids carried by any job."""
     from ..systemd.jobs import collect_jobs
 
@@ -277,7 +274,7 @@ def register_completers(parser: argparse.ArgumentParser) -> None:
         for subaction in target._actions:
             completer = overrides.get(subaction.dest, global_completers.get(subaction.dest))
             if completer is not None:
-                subaction.completer = completer
+                cast(CompletableAction, subaction).completer = completer
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -466,9 +463,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
 
     profile = _add(subparsers, "profile", commands.cmd_profile, "inspect command profiles")
-    profile.add_argument(
-        "action", nargs="?", choices=["list", "show", "path"], default="list"
-    )
+    profile.add_argument("action", nargs="?", choices=["list", "show", "path"], default="list")
     profile.add_argument("name", nargs="?", metavar="NAME")
 
     return parser

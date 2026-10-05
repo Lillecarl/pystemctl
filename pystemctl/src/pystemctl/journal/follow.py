@@ -10,8 +10,6 @@ import re
 from collections.abc import AsyncIterator, Sequence
 from dataclasses import dataclass
 
-import anyio
-
 from .formatting import entry_message, format_entry
 from .reader import entries, open_reader
 
@@ -43,8 +41,9 @@ async def follow_lines(
     """
     compiled = re.compile(pattern) if pattern else None
     reader = open_reader(system_units=system_units, user_units=user_units)
-    async for entry in entries(reader, tail=since_lines or 0, follow=True,
-                               skip_notices=skip_notices):
+    async for entry in entries(
+        reader, tail=since_lines or 0, follow=True, skip_notices=skip_notices
+    ):
         if compiled is not None and not compiled.search(entry_message(entry)):
             continue
         yield format_entry(entry, mode)

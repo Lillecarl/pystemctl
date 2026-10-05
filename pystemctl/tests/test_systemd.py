@@ -5,6 +5,7 @@ from typing import Any
 import anyio
 from jeepney.wrappers import DBusErrorResponse
 
+from pystemctl.bus import Bus
 from pystemctl.systemd import generate_unit_name, normalize_unit_name, unit_active_state
 
 
@@ -39,7 +40,12 @@ class _NoSuchUnit(DBusErrorResponse):
         self.data = ()
 
 
-class _MissingBus:
+class _MissingBus(Bus):
+    """A manager that has never heard of any unit."""
+
+    def __init__(self) -> None:
+        pass
+
     async def manager(self, *args: Any, **kwargs: Any) -> Any:
         raise _NoSuchUnit()
 

@@ -43,4 +43,5 @@ __all__ = [
     "cmd_status",
     "cmd_stop",
     "cmd_tail",
+    "cmd_wait",
 ]

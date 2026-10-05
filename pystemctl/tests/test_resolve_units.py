@@ -5,6 +5,7 @@ from collections.abc import Sequence
 
 import anyio
 import pytest
+from conftest import BUS
 
 from pystemctl import systemd as sd
 from pystemctl.cli import helpers
@@ -55,12 +56,12 @@ def test_units_only_are_normalized_without_touching_tags(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     _resolving(monkeypatch, _job("new.service"))
-    assert anyio.run(helpers.resolve_units, None, _args(units=["web"])) == ["web.service"]
+    assert anyio.run(helpers.resolve_units, BUS, _args(units=["web"])) == ["web.service"]
 
 
 def test_tag_appends_the_newest_match(monkeypatch: pytest.MonkeyPatch) -> None:
     _resolving(monkeypatch, _job("new.service"), [_job("old.service")])
-    units = anyio.run(helpers.resolve_units, None, _args(units=["web"], tags=["t"]))
+    units = anyio.run(helpers.resolve_units, BUS, _args(units=["web"], tags=["t"]))
     assert units == ["web.service", "new.service"]
 
 
@@ -68,7 +69,7 @@ def test_other_matches_are_named_on_stderr(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     _resolving(monkeypatch, _job("new.service"), [_job("old.service")])
-    anyio.run(helpers.resolve_units, None, _args(tags=["t"]))
+    anyio.run(helpers.resolve_units, BUS, _args(tags=["t"]))
     assert "old.service" in capsys.readouterr().err
 
 
@@ -78,12 +79,12 @@ def test_tag_miss_propagates_resolve_error(monkeypatch: pytest.MonkeyPatch) -> N
 
     monkeypatch.setattr(sd, "resolve", missing)
     with pytest.raises(PystemctlError, match="no job tagged"):
-        anyio.run(helpers.resolve_units, None, _args(tags=["t"]))
+        anyio.run(helpers.resolve_units, BUS, _args(tags=["t"]))
 
 
 def test_neither_unit_nor_tag_is_an_error() -> None:
     with pytest.raises(PystemctlError, match="give a unit name"):
-        anyio.run(helpers.resolve_units, None, _args())
+        anyio.run(helpers.resolve_units, BUS, _args())
 
 
 @pytest.mark.parametrize("command", ["logs", "status"])

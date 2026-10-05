@@ -27,3 +27,22 @@ packages = ["src/pystemctl"]
 
 [tool.hatch.build.targets.sdist]
 include = ["src/pystemctl", "tests", "pyproject.toml"]
+
+[tool.ruff]
+target-version = "py311"
+line-length = 100
+src = ["src"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "N", "W", "S101", "BLE", "RUF100"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["S101"]
+
+[tool.pyrefly]
+# Third-party imports resolve through the interpreter pyrefly finds on
+# PATH: the lint wrapper puts a Python with every dependency there, so no
+# dependency paths are stated here and local runs behave like sandbox runs.
+# tests/ is a search path the same way pytest treats it: conftest holds the
+# shared doubles, and test modules import it as a top-level module.
+search-path = ["tests"]

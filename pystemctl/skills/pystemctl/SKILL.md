@@ -174,6 +174,9 @@ resolves it at completion time.
   session's; `logs` fails on a name that never ran instead of printing
   nothing, and `status` says "could not be found" for those.
 - Prefer `--json` plus `show -P` when scripting over `status` text.
+- Lint and typecheck with `nix run --file . lint -- check` from the
+  repository (`fix` autofixes what ruff can); `nix build` runs the same
+  checks in the sandbox, so a red gate fails the build.
 - Shell completion (bash, zsh, fish) completes subcommands, unit names
   and files, tags, sessions, slices, env keys, priorities, and property
   names from live state. A failed manager lookup completes nothing rather

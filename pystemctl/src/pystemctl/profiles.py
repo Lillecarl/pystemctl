@@ -100,7 +100,9 @@ def _profile_from_table(name: str, table: Mapping[str, Any], path: Path) -> Prof
     }
     unknown = set(table) - known
     if unknown:
-        raise PystemctlError(f"{path}: profile {name!r}: unknown keys: {', '.join(sorted(unknown))}")
+        raise PystemctlError(
+            f"{path}: profile {name!r}: unknown keys: {', '.join(sorted(unknown))}"
+        )
 
     mode = table.get("working_directory_mode", "caller")
     if mode not in ("caller", "static", "as-is"):

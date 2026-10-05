@@ -35,7 +35,7 @@ def format_table(headers: Sequence[str], rows: Sequence[Sequence[str]]) -> str:
     table = [list(map(str, headers)), *(list(map(str, row)) for row in rows)]
     widths = [max(len(row[i]) for row in table) for i in range(len(headers))]
     lines = [
-        "  ".join(cell.ljust(width) for cell, width in zip(row, widths)).rstrip()
+        "  ".join(cell.ljust(width) for cell, width in zip(row, widths, strict=True)).rstrip()
         for row in table
     ]
     return "\n".join(lines)

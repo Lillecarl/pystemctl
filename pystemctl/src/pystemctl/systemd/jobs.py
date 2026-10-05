@@ -10,7 +10,7 @@ from jeepney.wrappers import DBusErrorResponse
 
 from ..bus import UNIT_INTERFACE, Bus
 from ..errors import PystemctlError
-from .tags import session_id, read_tags
+from .tags import read_tags, session_id
 from .units import Unit, environment_of, list_units, unit_interface
 
 

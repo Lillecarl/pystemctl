@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import argparse
 from collections.abc import AsyncIterator
 from typing import Any
 
 import anyio
 import pytest
+from conftest import BUS
 
 from pystemctl.bus import Scope
 from pystemctl.cli import helpers
@@ -26,9 +28,7 @@ def test_note_foreign_session_names_the_owner(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     monkeypatch.setattr(helpers, "session_id", lambda: "mine")
-    helpers.note_foreign_session(
-        "theirs.service", {"Environment": ["PYSTEMCTL_SESSION=theirs"]}
-    )
+    helpers.note_foreign_session("theirs.service", {"Environment": ["PYSTEMCTL_SESSION=theirs"]})
     assert "theirs.service belongs to session theirs" in capsys.readouterr().err
 
 
@@ -36,17 +36,13 @@ def test_note_foreign_session_stays_quiet_otherwise(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     monkeypatch.setattr(helpers, "session_id", lambda: "mine")
-    helpers.note_foreign_session(
-        "mine.service", {"Environment": ["PYSTEMCTL_SESSION=mine"]}
-    )
+    helpers.note_foreign_session("mine.service", {"Environment": ["PYSTEMCTL_SESSION=mine"]})
     helpers.note_foreign_session("plain.service", {})
     assert capsys.readouterr().err == ""
 
 
 def _journal(monkeypatch: pytest.MonkeyPatch, entries: list[dict[str, Any]]) -> None:
-    def open_reader(
-        *, system_units: list[str], user_units: list[str]
-    ) -> object:
+    def open_reader(*, system_units: list[str], user_units: list[str]) -> object:
         return object()
 
     async def read(
@@ -74,9 +70,7 @@ def test_has_journal_trace_empty_means_never_ran(
     assert anyio.run(helpers.has_journal_trace, "x.service", Scope.USER) is False
 
 
-def _resolve_setup(
-    monkeypatch: pytest.MonkeyPatch, props: dict[str, Any], trace: bool
-) -> None:
+def _resolve_setup(monkeypatch: pytest.MonkeyPatch, props: dict[str, Any], trace: bool) -> None:
     async def target(bus: object, args: object) -> str:
         return "gone.service"
 
@@ -96,7 +90,7 @@ def test_resolve_existing_points_a_collected_unit_at_its_logs(
 ) -> None:
     _resolve_setup(monkeypatch, {"LoadState": "not-found"}, trace=True)
     with pytest.raises(PystemctlError, match="already finished and was collected"):
-        anyio.run(helpers.resolve_existing, None, object())
+        anyio.run(helpers.resolve_existing, BUS, argparse.Namespace())
 
 
 def test_resolve_existing_without_a_trace_is_not_found(
@@ -104,4 +98,4 @@ def test_resolve_existing_without_a_trace_is_not_found(
 ) -> None:
     _resolve_setup(monkeypatch, {"LoadState": "not-found"}, trace=False)
     with pytest.raises(PystemctlError, match="not found"):
-        anyio.run(helpers.resolve_existing, None, object())
+        anyio.run(helpers.resolve_existing, BUS, argparse.Namespace())

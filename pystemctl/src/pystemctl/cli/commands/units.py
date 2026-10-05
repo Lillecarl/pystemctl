@@ -8,11 +8,10 @@ import os
 
 from ... import systemd as sd
 from ...bus import Bus
-from ...errors import UnitNotFound
+from ...errors import UnitNotFoundError
 from ...render import format_table, format_unit_status
 from ..helpers import (
     has_journal_trace,
-    jsonable,
     resolve_units,
     unit_payload,
     unit_payload_from_props,
@@ -74,7 +73,7 @@ async def cmd_status(bus: Bus, args: argparse.Namespace) -> int:
     for name in await resolve_units(bus, args):
         try:
             props = await sd.unit_properties(bus, name)
-        except UnitNotFound:
+        except UnitNotFoundError:
             print(f"Unit {name} could not be found.")
             exit_code = max(exit_code, 4)
             continue

@@ -62,7 +62,12 @@ async def _until_pattern_then_cancel(
     # output by default; starting at the tail would miss what already printed.
     replay = args.lines if args.lines is not None else DEFAULT_REPLAY
     await follow_matching(
-        name, args, outcome, group, replay=replay, stop_on_match=True,
+        name,
+        args,
+        outcome,
+        group,
+        replay=replay,
+        stop_on_match=True,
         skip_notices=False,
     )
 

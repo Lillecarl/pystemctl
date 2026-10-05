@@ -34,6 +34,7 @@ async def cmd_jobs(bus: Bus, args: argparse.Namespace) -> int:
         )
 
     if args.follow:
+
         async def visible() -> list[Job]:
             jobs, _hidden = _visible(await snapshot(session), args)
             return jobs

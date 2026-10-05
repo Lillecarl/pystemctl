@@ -4,9 +4,9 @@ import argparse
 
 import pytest
 
-from pystemctl.cli.parser import build_journal_parser, build_parser
-from pystemctl.cli.commands.run import strip_separator
 from pystemctl.bus import Scope
+from pystemctl.cli.commands.run import strip_separator
+from pystemctl.cli.parser import build_journal_parser, build_parser
 
 
 @pytest.fixture(scope="module")
@@ -22,12 +22,10 @@ def _parse(parser: argparse.ArgumentParser, argv: list[str]) -> argparse.Namespa
 def test_every_bound_command_has_a_handler(parser: argparse.ArgumentParser) -> None:
     # The subparsers action holds the names, counting aliases only once.
     subparsers = next(
-        action
-        for action in parser._actions
-        if isinstance(action, argparse._SubParsersAction)
+        action for action in parser._actions if isinstance(action, argparse._SubParsersAction)
     )
     for name, sub in subparsers.choices.items():
-        assert hasattr(sub.get_default("handler"), "__call__"), name
+        assert callable(sub.get_default("handler")), name
 
 
 def test_scope_defaults_to_user_and_json_off(parser: argparse.ArgumentParser) -> None:
@@ -184,9 +182,7 @@ def test_help_groups_job_commands(parser: argparse.ArgumentParser) -> None:
 
 def _sub(parser: argparse.ArgumentParser, name: str) -> argparse.ArgumentParser:
     subparsers = next(
-        action
-        for action in parser._actions
-        if isinstance(action, argparse._SubParsersAction)
+        action for action in parser._actions if isinstance(action, argparse._SubParsersAction)
     )
     return subparsers.choices[name]
 
@@ -205,6 +201,8 @@ def test_run_wait_help_mentions_streaming(parser: argparse.ArgumentParser) -> No
     assert "streaming" in (_sub(parser, "run").description or "") or any(
         "streaming" in (action.help or "") for action in _sub(parser, "run")._actions
     )
+
+
 def test_journal_parser_flags() -> None:
     parser = build_journal_parser()
     args = _parse(

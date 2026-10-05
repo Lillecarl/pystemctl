@@ -85,7 +85,12 @@ async def _stream(
     group: anyio.abc.TaskGroup,
 ) -> None:
     await follow_matching(
-        name, args, outcome, group, replay=replay, stop_on_match=True,
+        name,
+        args,
+        outcome,
+        group,
+        replay=replay,
+        stop_on_match=True,
         skip_notices=args.grep is None,
     )
 

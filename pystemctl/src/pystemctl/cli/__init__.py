@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
+import argparse
 import sys
-from collections.abc import Callable, Sequence
+from collections.abc import Awaitable, Callable, Sequence
 
 import anyio
 from jeepney.wrappers import DBusErrorResponse
@@ -15,19 +16,19 @@ from .parser import build_journal_parser, build_parser, register_completers
 PYTHON_ARGCOMPLETE_OK = True
 
 
-def _autocomplete(parser: object) -> None:
+def _autocomplete(parser: argparse.ArgumentParser) -> None:
     try:
         import argcomplete
     except ImportError:
         return
-    register_completers(parser)  # type: ignore[arg-type]
+    register_completers(parser)
     argcomplete.autocomplete(parser)
 
 
 def _run(
     prefix: str,
-    build_parser: Callable[[], object],
-    dispatch: Callable[[object], object],
+    build_parser: Callable[[], argparse.ArgumentParser],
+    dispatch: Callable[[argparse.Namespace], Awaitable[int]],
     argv: Sequence[str] | None,
 ) -> int:
     parser = build_parser()

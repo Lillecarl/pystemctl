@@ -5,6 +5,7 @@ from typing import Any
 
 import anyio
 import pytest
+from conftest import BUS
 from jeepney.wrappers import DBusErrorResponse
 
 from pystemctl.cli import helpers
@@ -33,13 +34,11 @@ def test_unit_action_names_a_missing_unit(
     """stop on an unknown unit reads as not-found, not raw D-Bus."""
 
     async def fail(bus: object, name: str) -> str:
-        raise _bus_error(
-            "org.freedesktop.systemd1.NoSuchUnit", ("Unit x.service not loaded.",)
-        )
+        raise _bus_error("org.freedesktop.systemd1.NoSuchUnit", ("Unit x.service not loaded.",))
 
     _properties(monkeypatch, {})
     args = argparse.Namespace(units=["x"], json=False)
-    code = anyio.run(control_cmd._unit_action, None, args, fail)
+    code = anyio.run(control_cmd._unit_action, BUS, args, fail)
     assert code == 1
     err = capsys.readouterr().err
     assert "Unit x.service not found." in err
@@ -54,7 +53,7 @@ def test_unit_action_keeps_other_errors_verbatim(
 
     _properties(monkeypatch, {})
     args = argparse.Namespace(units=["x"], json=False)
-    code = anyio.run(control_cmd._unit_action, None, args, fail)
+    code = anyio.run(control_cmd._unit_action, BUS, args, fail)
     assert code == 1
     assert "boom" in capsys.readouterr().err
 
@@ -64,7 +63,7 @@ def test_rm_reports_a_unit_that_was_never_there(
 ) -> None:
     _properties(monkeypatch, {})
     args = argparse.Namespace(units=["ghost"], json=False)
-    code = anyio.run(control_cmd.cmd_rm, None, args)
+    code = anyio.run(control_cmd.cmd_rm, BUS, args)
     assert code == 1
     captured = capsys.readouterr()
     assert "not found" in captured.err
@@ -78,7 +77,7 @@ def test_rm_fails_on_a_unit_that_is_already_gone(
     # rm(1) on a missing file, that is an error, not a quiet success.
     _properties(monkeypatch, {"LoadState": "not-found"})
     args = argparse.Namespace(units=["old.service"], json=False)
-    code = anyio.run(control_cmd.cmd_rm, None, args)
+    code = anyio.run(control_cmd.cmd_rm, BUS, args)
     assert code == 1
     captured = capsys.readouterr()
     assert "not found" in captured.err
@@ -105,7 +104,7 @@ def test_stop_warns_about_another_sessions_unit(
     monkeypatch.setattr(helpers, "session_id", lambda: "mine")
     monkeypatch.setattr(control_cmd.sd, "wait_job", waited)
     args = argparse.Namespace(units=["theirs.service"], json=False)
-    code = anyio.run(control_cmd._unit_action, None, args, stop)
+    code = anyio.run(control_cmd._unit_action, BUS, args, stop)
     assert code == 0
     err = capsys.readouterr().err
     assert "theirs.service belongs to session someone-else" in err
@@ -131,6 +130,6 @@ def test_stop_stays_quiet_for_its_own_session(
     monkeypatch.setattr(helpers, "session_id", lambda: "mine")
     monkeypatch.setattr(control_cmd.sd, "wait_job", waited)
     args = argparse.Namespace(units=["mine.service"], json=False)
-    code = anyio.run(control_cmd._unit_action, None, args, stop)
+    code = anyio.run(control_cmd._unit_action, BUS, args, stop)
     assert code == 0
     assert capsys.readouterr().err == ""

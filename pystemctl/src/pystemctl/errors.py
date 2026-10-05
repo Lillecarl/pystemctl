@@ -11,7 +11,7 @@ class PystemctlError(Exception):
     """A failure whose message is fit to show to the user."""
 
 
-class UnitNotFound(PystemctlError):
+class UnitNotFoundError(PystemctlError):
     """A unit name resolves to no loaded or loadable unit."""
 
     def __init__(self, name: str) -> None:

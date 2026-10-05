@@ -27,10 +27,7 @@ async def cmd_profile(_bus: Bus, args: argparse.Namespace) -> int:
             print("No profiles defined.")
             print("Search path:", ", ".join(str(path) for path in profiles.config_files()))
             return 0
-        rows = [
-            [name, profile.description or ""]
-            for name, profile in sorted(available.items())
-        ]
+        rows = [[name, profile.description or ""] for name, profile in sorted(available.items())]
         print(format_table(["PROFILE", "DESCRIPTION"], rows))
         return 0
 
@@ -57,7 +54,9 @@ async def cmd_profile(_bus: Bus, args: argparse.Namespace) -> int:
                     "runtime_max": profile.runtime_max_sec,
                     "remain_after_exit": profile.remain_after_exit,
                     "collect": profile.collect,
-                    "properties": {name: value for name, (_sig, value) in profile.properties.items()},
+                    "properties": {
+                        name: value for name, (_sig, value) in profile.properties.items()
+                    },
                 }
             )
         )
@@ -72,7 +71,9 @@ async def cmd_profile(_bus: Bus, args: argparse.Namespace) -> int:
         print("env:")
         for key, value in profile.env.items():
             print(f"  {key}={value}")
-    print(f"working_directory: {profile.working_directory or '-'} ({profile.working_directory_mode})")
+    print(
+        f"working_directory: {profile.working_directory or '-'} ({profile.working_directory_mode})"
+    )
     if profile.unit_type:
         print(f"unit_type: {profile.unit_type}")
     if profile.tags:

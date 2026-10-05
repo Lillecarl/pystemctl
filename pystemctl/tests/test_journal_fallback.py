@@ -6,6 +6,7 @@ from functools import partial
 
 import anyio
 import pytest
+from conftest import BUS
 
 from pystemctl import journal as jr
 from pystemctl.cli import helpers
@@ -56,9 +57,7 @@ class FakeReader:
         return self.log.pop() if self.log else None
 
 
-def _reader_with(
-    monkeypatch: pytest.MonkeyPatch, log: list[dict[str, object]]
-) -> list[object]:
+def _reader_with(monkeypatch: pytest.MonkeyPatch, log: list[dict[str, object]]) -> list[object]:
     seen: list[object] = []
 
     def fake(**kwargs: object) -> FakeReader:
@@ -159,7 +158,7 @@ def test_resolve_units_falls_back_to_the_journal(
 
     monkeypatch.setattr("pystemctl.systemd.resolve", missing)
     monkeypatch.setattr(jr, "newest_unit_for_tags", found)
-    units = anyio.run(helpers.resolve_units, None, _resolve_args(tags=["t"]))
+    units = anyio.run(helpers.resolve_units, BUS, _resolve_args(tags=["t"]))
     assert units == ["old.service"]
     assert "collected" in capsys.readouterr().err
 
@@ -176,4 +175,4 @@ def test_resolve_units_keeps_the_original_miss(
     monkeypatch.setattr("pystemctl.systemd.resolve", missing)
     monkeypatch.setattr(jr, "newest_unit_for_tags", found)
     with pytest.raises(PystemctlError, match="no job tagged"):
-        anyio.run(helpers.resolve_units, None, _resolve_args(tags=["t"]))
+        anyio.run(helpers.resolve_units, BUS, _resolve_args(tags=["t"]))

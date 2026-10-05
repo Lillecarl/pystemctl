@@ -12,9 +12,9 @@ from typing import Any
 import anyio
 from jeepney.wrappers import DBusErrorResponse
 
+from ... import journal as jr
 from ... import profiles
 from ... import systemd as sd
-from ... import journal as jr
 from ...bus import Bus
 from ...errors import PystemctlError
 from ...systemd.tags import RESERVED, session_id
@@ -59,9 +59,7 @@ async def _stream(name: str, args: argparse.Namespace, group: anyio.abc.TaskGrou
     group.cancel_scope.cancel()
 
 
-async def _watch(
-    bus: Bus, name: str, outcome: WatchOutcome, group: anyio.abc.TaskGroup
-) -> None:
+async def _watch(bus: Bus, name: str, outcome: WatchOutcome, group: anyio.abc.TaskGroup) -> None:
     outcome.props = await sd.wait_until_finished(bus, name)
     group.cancel_scope.cancel()
 
@@ -181,8 +179,7 @@ async def cmd_run(bus: Bus, args: argparse.Namespace) -> int:
     if not args.wait:
         if not args.json:
             print(
-                f"pystemctl: see it with pystemctl logs {name}, "
-                f"or pystemctl wait {name}",
+                f"pystemctl: see it with pystemctl logs {name}, or pystemctl wait {name}",
                 file=sys.stderr,
             )
         return 0

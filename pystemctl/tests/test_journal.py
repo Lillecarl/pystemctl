@@ -14,7 +14,7 @@ from pystemctl.journal.reader import entries, is_manager_notice
 
 @pytest.fixture
 def now() -> dt.datetime:
-    return dt.datetime(2026, 9, 30, 12, 0, 0, tzinfo=dt.timezone.utc)
+    return dt.datetime(2026, 9, 30, 12, 0, 0, tzinfo=dt.UTC)
 
 
 def test_now(now: dt.datetime) -> None:
@@ -94,9 +94,7 @@ def test_manager_lifecycle_lines_are_notices(message: str) -> None:
 
 
 def test_bytes_messages_are_notices_too() -> None:
-    assert is_manager_notice(
-        {"SYSLOG_IDENTIFIER": "systemd", "MESSAGE": b"Started job.service."}
-    )
+    assert is_manager_notice({"SYSLOG_IDENTIFIER": "systemd", "MESSAGE": b"Started job.service."})
 
 
 @pytest.mark.parametrize(
@@ -126,10 +124,7 @@ class _TailedReader:
 
 
 async def _collect(reader: _TailedReader, **kwargs: Any) -> list[str]:
-    return [
-        str(entry["MESSAGE"])
-        async for entry in entries(reader, tail=10, **kwargs)
-    ]
+    return [str(entry["MESSAGE"]) async for entry in entries(reader, tail=10, **kwargs)]
 
 
 def test_tailed_entries_skip_notices_on_request() -> None:
@@ -143,6 +138,4 @@ def test_tailed_entries_skip_notices_on_request() -> None:
         "hello",
         "Stopped job.service.",
     ]
-    assert anyio.run(
-        partial(_collect, _TailedReader(list(log)), skip_notices=True)
-    ) == ["hello"]
+    assert anyio.run(partial(_collect, _TailedReader(list(log)), skip_notices=True)) == ["hello"]

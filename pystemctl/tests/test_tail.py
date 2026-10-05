@@ -6,6 +6,7 @@ from functools import partial
 
 import anyio
 import pytest
+from conftest import BUS, as_task_group
 
 from pystemctl.bus import Scope
 from pystemctl.cli import helpers
@@ -47,7 +48,7 @@ def test_stream_hides_notices_unless_grepping(
 
     monkeypatch.setattr(tail_cmd, "follow_matching", fake)
     args = argparse.Namespace(grep=grep)
-    anyio.run(tail_cmd._stream, "x.service", args, WatchOutcome(), 200, _Group())
+    anyio.run(tail_cmd._stream, "x.service", args, WatchOutcome(), 200, as_task_group(_Group()))
     assert seen["skip_notices"] is skipped
 
 
@@ -61,7 +62,7 @@ def test_follow_matching_forwards_the_flag(
         yield "hello"
 
     monkeypatch.setattr(helpers.jr, "follow_lines", fake)
-    group = _Group()
+    group = as_task_group(_Group())
     args = argparse.Namespace(grep=None, json=False, scope=Scope.USER)
     watch = partial(
         helpers.follow_matching,
@@ -95,7 +96,7 @@ def test_follow_matching_skips_notices_by_default(
         "x.service",
         args,
         WatchOutcome(),
-        _Group(),
+        as_task_group(_Group()),
         replay=10,
         stop_on_match=False,
     )
@@ -135,7 +136,7 @@ def test_tail_until_exit_timeout_is_not_success(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     _stall_tail(monkeypatch)
-    code = anyio.run(tail_cmd.cmd_tail, None, _tail_args(until_exit=True))
+    code = anyio.run(tail_cmd.cmd_tail, BUS, _tail_args(until_exit=True))
     assert code == 124
     assert "timed out" in capsys.readouterr().err
 
@@ -144,7 +145,7 @@ def test_tail_grep_timeout_reports_no_match(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     _stall_tail(monkeypatch)
-    code = anyio.run(tail_cmd.cmd_tail, None, _tail_args(grep="READY"))
+    code = anyio.run(tail_cmd.cmd_tail, BUS, _tail_args(grep="READY"))
     assert code == 1
     assert "timed out" in capsys.readouterr().err
 
@@ -154,6 +155,6 @@ def test_tail_plain_follow_timeout_stays_quiet(
 ) -> None:
     # A bounded plain follow printed what arrived; stopping there is the job.
     _stall_tail(monkeypatch)
-    code = anyio.run(tail_cmd.cmd_tail, None, _tail_args())
+    code = anyio.run(tail_cmd.cmd_tail, BUS, _tail_args())
     assert code == 0
     assert "timed out" in capsys.readouterr().err

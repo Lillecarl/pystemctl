@@ -14,9 +14,7 @@ def _args() -> argparse.Namespace:
 def test_single_unit_prints_the_bare_state(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    code = _query_states(
-        _args(), [("a.service", "active")], expected={"active"}, exit_code=3
-    )
+    code = _query_states(_args(), [("a.service", "active")], expected={"active"}, exit_code=3)
     assert code == 0
     assert capsys.readouterr().out == "active\n"
 

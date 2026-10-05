@@ -52,12 +52,12 @@ async def resolve_target(bus: Bus, args: argparse.Namespace) -> str:
     several matched, the others are named on stderr so a surprising choice is
     visible rather than silent.
     """
-    tags = getattr(args, "tags", None)
+    tags: Sequence[str] = getattr(args, "tags", None) or ()
     if not tags and getattr(args, "unit", None):
         return sd.normalize_unit_name(args.unit)
 
     try:
-        chosen, others = await sd.resolve(bus, tags=tags or ())
+        chosen, others = await sd.resolve(bus, tags=tags)
     except PystemctlError as missing:
         if not tags:
             raise
@@ -120,8 +120,7 @@ async def resolve_existing(bus: Bus, args: argparse.Namespace) -> tuple[str, dic
     if not props or props.get("LoadState") == "not-found":
         if await has_journal_trace(name, getattr(args, "scope", Scope.USER)):
             raise PystemctlError(
-                f"Unit {name} already finished and was collected; "
-                f"see pystemctl logs {name}"
+                f"Unit {name} already finished and was collected; see pystemctl logs {name}"
             )
         raise PystemctlError(f"Unit {name} not found.")
     return name, props
@@ -207,7 +206,7 @@ def unit_payload_from_props(name: str, props: dict[str, Any]) -> dict[str, Any]:
 class NoTimeout:
     """A drop-in for ``anyio.move_on_after`` that never fires."""
 
-    def __enter__(self) -> "NoTimeout":
+    def __enter__(self) -> NoTimeout:
         return self
 
     def __exit__(self, *exc: object) -> bool:

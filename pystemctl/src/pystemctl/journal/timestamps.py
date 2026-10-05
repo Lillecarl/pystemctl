@@ -14,11 +14,18 @@ _RELATIVE_RE = re.compile(
     r"(?:\s+ago)?$"
 )
 _UNIT_SECONDS = {
-    "s": 1, "sec": 1, "second": 1,
-    "m": 60, "min": 60, "minute": 60,
-    "h": 3600, "hour": 3600,
-    "d": 86400, "day": 86400,
-    "w": 604800, "week": 604800,
+    "s": 1,
+    "sec": 1,
+    "second": 1,
+    "m": 60,
+    "min": 60,
+    "minute": 60,
+    "h": 3600,
+    "hour": 3600,
+    "d": 86400,
+    "day": 86400,
+    "w": 604800,
+    "week": 604800,
 }
 
 

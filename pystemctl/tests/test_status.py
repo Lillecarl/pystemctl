@@ -5,6 +5,7 @@ import json
 
 import anyio
 import pytest
+from conftest import BUS
 
 from pystemctl.bus import Scope
 from pystemctl.cli.commands import units as units_cmd
@@ -48,12 +49,10 @@ def _trace(monkeypatch: pytest.MonkeyPatch, found: bool) -> None:
 def test_status_explains_a_collected_unit(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    _properties(
-        monkeypatch, {"LoadState": "not-found", "ActiveState": "inactive"}
-    )
+    _properties(monkeypatch, {"LoadState": "not-found", "ActiveState": "inactive"})
     _trace(monkeypatch, True)
     _journal(monkeypatch, ["hello"])
-    code = anyio.run(units_cmd.cmd_status, None, _args(units=["gone.service"]))
+    code = anyio.run(units_cmd.cmd_status, BUS, _args(units=["gone.service"]))
     assert code == 3
     out = capsys.readouterr().out
     assert "Collected" in out
@@ -74,7 +73,7 @@ def test_status_still_reports_a_loaded_unit(
         },
     )
     _journal(monkeypatch, [])
-    code = anyio.run(units_cmd.cmd_status, None, _args(units=["job.service"]))
+    code = anyio.run(units_cmd.cmd_status, BUS, _args(units=["job.service"]))
     assert code == 0
     assert "* job.service" in capsys.readouterr().out
 
@@ -82,14 +81,10 @@ def test_status_still_reports_a_loaded_unit(
 def test_status_collected_unit_json_carries_logs(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    _properties(
-        monkeypatch, {"LoadState": "not-found", "ActiveState": "inactive"}
-    )
+    _properties(monkeypatch, {"LoadState": "not-found", "ActiveState": "inactive"})
     _trace(monkeypatch, True)
     _journal(monkeypatch, ["hello"])
-    code = anyio.run(
-        units_cmd.cmd_status, None, _args(units=["gone.service"], json=True)
-    )
+    code = anyio.run(units_cmd.cmd_status, BUS, _args(units=["gone.service"], json=True))
     assert code == 3
     payload = json.loads(capsys.readouterr().out)
     assert payload["journal"] == ["hello"]
@@ -99,11 +94,9 @@ def test_status_names_a_unit_that_never_ran(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     """No journal trace means the unit never ran: say so, not "collected"."""
-    _properties(
-        monkeypatch, {"LoadState": "not-found", "ActiveState": "inactive"}
-    )
+    _properties(monkeypatch, {"LoadState": "not-found", "ActiveState": "inactive"})
     _trace(monkeypatch, False)
-    code = anyio.run(units_cmd.cmd_status, None, _args(units=["typo.service"]))
+    code = anyio.run(units_cmd.cmd_status, BUS, _args(units=["typo.service"]))
     assert code == 4
     out = capsys.readouterr().out
     assert "could not be found" in out
@@ -113,13 +106,9 @@ def test_status_names_a_unit_that_never_ran(
 def test_status_never_ran_json_still_marks_not_found(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    _properties(
-        monkeypatch, {"LoadState": "not-found", "ActiveState": "inactive"}
-    )
+    _properties(monkeypatch, {"LoadState": "not-found", "ActiveState": "inactive"})
     _trace(monkeypatch, False)
     _journal(monkeypatch, [])
-    code = anyio.run(
-        units_cmd.cmd_status, None, _args(units=["typo.service"], json=True)
-    )
+    code = anyio.run(units_cmd.cmd_status, BUS, _args(units=["typo.service"], json=True))
     assert code == 4
     assert json.loads(capsys.readouterr().out)["journal"] == []

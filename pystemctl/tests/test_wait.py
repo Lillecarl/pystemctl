@@ -5,6 +5,7 @@ import json
 
 import anyio
 import pytest
+from conftest import BUS, as_task_group
 
 from pystemctl.cli.commands import wait as wait_cmd
 from pystemctl.cli.commands.wait import _report, _report_timeout
@@ -73,7 +74,7 @@ def test_cmd_wait_timeout_is_not_success(
     monkeypatch.setattr(wait_cmd.sd, "wait_until_finished", slow)
     monkeypatch.setattr(wait_cmd.sd, "try_unit_properties", slow)
     args = argparse.Namespace(timeout=0.05, grep=None, json=False)
-    code = anyio.run(wait_cmd.cmd_wait, None, args)
+    code = anyio.run(wait_cmd.cmd_wait, BUS, args)
     assert code == 124
     assert "timed out" in capsys.readouterr().err
 
@@ -116,6 +117,10 @@ def test_pattern_watch_sees_manager_notices(monkeypatch: pytest.MonkeyPatch) -> 
     monkeypatch.setattr(wait_cmd, "follow_matching", fake)
     args = argparse.Namespace(grep="Started", lines=None)
     anyio.run(
-        wait_cmd._until_pattern_then_cancel, "x.service", args, WatchOutcome(), _Group()
+        wait_cmd._until_pattern_then_cancel,
+        "x.service",
+        args,
+        WatchOutcome(),
+        as_task_group(_Group()),
     )
     assert seen["skip_notices"] is False

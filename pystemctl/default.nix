@@ -10,6 +10,7 @@
   installShellFiles,
   pytestCheckHook,
   stdenv,
+  lintCheck,
 }:
 
 buildPythonPackage rec {
@@ -31,7 +32,7 @@ buildPythonPackage rec {
 
   nativeBuildInputs = [ installShellFiles ];
 
-  nativeCheckInputs = [ pytestCheckHook ];
+  nativeCheckInputs = [ pytestCheckHook lintCheck ];
 
   postInstall =
     let

@@ -5,6 +5,7 @@ from collections.abc import Sequence
 
 import anyio
 import pytest
+from conftest import BUS
 
 from pystemctl.cli.commands import jobs as jobs_cmd
 from pystemctl.systemd.jobs import Job
@@ -30,9 +31,7 @@ def _unit(
     )
 
 
-def _job(
-    session: str | None = None, name: str = "job.service", **props: object
-) -> Job:
+def _job(session: str | None = None, name: str = "job.service", **props: object) -> Job:
     return Job(
         unit=_unit(name=name),
         tags=[],
@@ -129,7 +128,7 @@ def test_jobs_falls_back_to_any_session(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     seen = _collecting(monkeypatch, {None: [_job(session="other")]})
-    code = anyio.run(jobs_cmd.cmd_jobs, None, _cmd_args(session="s1"))
+    code = anyio.run(jobs_cmd.cmd_jobs, BUS, _cmd_args(session="s1"))
     assert code == 0
     assert seen == ["s1", None]
     captured = capsys.readouterr()
@@ -140,10 +139,8 @@ def test_jobs_falls_back_to_any_session(
 def test_jobs_skips_fallback_when_scoped_finds_jobs(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    seen = _collecting(
-        monkeypatch, {"s1": [_job(session="s1")], None: [_job(session="other")]}
-    )
-    code = anyio.run(jobs_cmd.cmd_jobs, None, _cmd_args(session="s1"))
+    seen = _collecting(monkeypatch, {"s1": [_job(session="s1")], None: [_job(session="other")]})
+    code = anyio.run(jobs_cmd.cmd_jobs, BUS, _cmd_args(session="s1"))
     assert code == 0
     assert seen == ["s1"]
     assert capsys.readouterr().err == ""
@@ -153,7 +150,7 @@ def test_jobs_reports_nothing_found(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     seen = _collecting(monkeypatch, {})
-    code = anyio.run(jobs_cmd.cmd_jobs, None, _cmd_args(session="s1"))
+    code = anyio.run(jobs_cmd.cmd_jobs, BUS, _cmd_args(session="s1"))
     assert code == 1
     assert seen == ["s1", None]
     assert capsys.readouterr().out == ""
@@ -163,7 +160,7 @@ def test_jobs_any_session_queries_once(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     seen = _collecting(monkeypatch, {None: [_job(session="other")]})
-    code = anyio.run(jobs_cmd.cmd_jobs, None, _cmd_args(any_session=True))
+    code = anyio.run(jobs_cmd.cmd_jobs, BUS, _cmd_args(any_session=True))
     assert code == 0
     assert seen == [None]
     capsys.readouterr()
@@ -176,7 +173,7 @@ def test_jobs_hides_foreign_units_by_default(
         monkeypatch,
         {"s1": [_job(session="s1", name="mine.service"), _job(name="other.service")]},
     )
-    code = anyio.run(jobs_cmd.cmd_jobs, None, _cmd_args(session="s1"))
+    code = anyio.run(jobs_cmd.cmd_jobs, BUS, _cmd_args(session="s1"))
     assert code == 0
     out = capsys.readouterr().out
     assert "mine.service" in out
@@ -190,7 +187,7 @@ def test_jobs_all_transient_shows_everything(
         monkeypatch,
         {"s1": [_job(session="s1", name="mine.service"), _job(name="other.service")]},
     )
-    code = anyio.run(jobs_cmd.cmd_jobs, None, _cmd_args(session="s1", all_transient=True))
+    code = anyio.run(jobs_cmd.cmd_jobs, BUS, _cmd_args(session="s1", all_transient=True))
     assert code == 0
     out = capsys.readouterr().out
     assert "mine.service" in out
@@ -201,7 +198,7 @@ def test_jobs_names_hidden_foreign_units(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     _collecting(monkeypatch, {"s1": [_job(name="other.service")]})
-    code = anyio.run(jobs_cmd.cmd_jobs, None, _cmd_args(session="s1"))
+    code = anyio.run(jobs_cmd.cmd_jobs, BUS, _cmd_args(session="s1"))
     assert code == 1
     captured = capsys.readouterr()
     assert captured.out == ""

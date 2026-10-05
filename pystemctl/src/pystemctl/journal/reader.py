@@ -72,7 +72,7 @@ def open_reader(
     uid: str | None = None,
     priority: int | None = None,
     boot: str | bool | None = None,
-) -> "journal.Reader":
+) -> journal.Reader:
     journal = _journal_module()
     reader = journal.Reader(flags=journal.LOCAL_ONLY)
     if priority is not None:
@@ -119,7 +119,7 @@ async def newest_unit_for_tags(
 
 
 async def entries(
-    reader: "journal.Reader",
+    reader: journal.Reader,
     *,
     since: dt.datetime | None = None,
     until: dt.datetime | None = None,

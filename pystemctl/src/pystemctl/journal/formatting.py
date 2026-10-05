@@ -40,7 +40,11 @@ async def print_entries(
         system_units=system_units, user_units=user_units, priority=priority, boot=boot
     )
     async for entry in entries(
-        reader, since=since, until=until, tail=tail, follow=follow,
+        reader,
+        since=since,
+        until=until,
+        tail=tail,
+        follow=follow,
         skip_notices=skip_notices,
     ):
         print(format_entry(entry, mode), flush=True)

@@ -29,16 +29,25 @@ def test_working_directory_caller_mode() -> None:
 
 
 def test_working_directory_static_mode() -> None:
-    profile = profiles.Profile(
-        name="p", working_directory="/srv", working_directory_mode="static"
-    )
+    profile = profiles.Profile(name="p", working_directory="/srv", working_directory_mode="static")
     assert profiles.resolve_working_directory(profile, cwd="/here") == "/srv"
 
 
 def test_apply_cli_overrides_prefers_cli() -> None:
     profile = profiles.Profile(name="p", nice=5, tags=("base",))
-    args = type("A", (), {"nice": 10, "tags": ["extra"], "type": None, "description": None,
-                          "working_directory": None, "slice_name": None, "runtime_max": None})()
+    args = type(
+        "A",
+        (),
+        {
+            "nice": 10,
+            "tags": ["extra"],
+            "type": None,
+            "description": None,
+            "working_directory": None,
+            "slice_name": None,
+            "runtime_max": None,
+        },
+    )()
     updated = profiles.apply_cli_overrides(profile, args)
     assert updated.nice == 10
     assert updated.tags == ("base", "extra")
@@ -53,8 +62,19 @@ def test_profile_from_table_rejects_unknown_key() -> None:
 
 def test_apply_cli_overrides_is_identity_without_flags() -> None:
     profile = profiles.Profile(name="p", nice=5)
-    args = type("A", (), {"nice": None, "tags": [], "type": None, "description": None,
-                          "working_directory": None, "slice_name": None, "runtime_max": None})()
+    args = type(
+        "A",
+        (),
+        {
+            "nice": None,
+            "tags": [],
+            "type": None,
+            "description": None,
+            "working_directory": None,
+            "slice_name": None,
+            "runtime_max": None,
+        },
+    )()
     assert profiles.apply_cli_overrides(profile, args) is profile
 
 
