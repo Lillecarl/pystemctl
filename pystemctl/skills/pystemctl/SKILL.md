@@ -47,6 +47,9 @@ Collect rule: explicit `--collect` / `--no-collect` wins. Otherwise a tagged
 job is kept (so its exit status stays readable) and an untagged job is
 collected once it stops.
 
+`--wait` streams the command's output in text mode, then prints the unit
+name; `--json` keeps a single payload at the end.
+
 ## Unit lifecycle and inspection
 
 ```sh
@@ -66,9 +69,11 @@ skip logs.
 
 ## Jobs, wait, tail
 
-`jobs` lists ephemeral jobs. Filter by tag (newest job carrying every tag) or
-session. `wait` blocks until a unit finishes or a log line matches. `tail`
-follows output until the unit stops or a line matches.
+`jobs` lists pystemctl's own jobs; other transient units (scopes, other
+tools) stay hidden unless `--all-transient` is passed. Filter by tag
+(newest job carrying every tag) or session. `wait` blocks until a unit
+finishes or a log line matches. `tail` follows output until the unit stops
+or a line matches.
 
 The long-run loop: start tagged, wait in bounded chunks, then read the logs.
 `run` prints the unit name; keep it for `logs` and `status`.
@@ -77,7 +82,7 @@ The long-run loop: start tagged, wait in bounded chunks, then read the logs.
 pystemctl run --tag deploy -- ./build.sh   # prints pystemctl-build-xxxx.service
 pystemctl wait --tag deploy --timeout 300  # repeat until the unit stops
 pystemctl jobs --tag deploy                # same agent session
-pystemctl logs pystemctl-build-xxxx.service -n 100
+pystemctl logs --tag deploy -n 100        # unit name not needed
 ```
 
 Sessions: `run` stamps the invoking agent session on the job. `jobs` lists
@@ -96,8 +101,10 @@ pystemctl tail myunit.service -n 200 -f
 pystemctl tail --tag deploy --grep ERROR --until-exit
 ```
 
-Target selector for `wait` / `tail`: positional `UNIT` or `--tag/-T TAG`
-(mutually exclusive, one is required).
+Target selector for `wait` / `tail` / `logs` / `status`: positional `UNIT`
+or `--tag/-T TAG`. `logs` and `status` also take several units. A tag keeps
+working after the job finishes and its unit unloads: tags ride along in the
+journal, so the newest tagged entry resolves the name.
 
 ## Logs and journal
 
@@ -112,6 +119,10 @@ Shared log flags: `-n/--lines N`, `--since`, `--until`, `-p/--priority LEVEL`,
 `-b/--boot [ID]`, `-o/--output short|short-iso|short-precise|short-full|cat|json|json-pretty|verbose`,
 `-f/--follow`. Without `-n`, the last 10 lines replay (all of them with
 `--since` and no `--follow`).
+
+pystemctl log views show the program's output, not the manager's
+Started/Stopped lifecycle lines; `pyjournalctl` shows everything, and
+`--json` keeps every field.
 
 ## Profiles
 
@@ -152,7 +163,8 @@ resolves it at completion time.
 - With `--system`, unit environments are visible on the system bus. Do not
   run secrets through env there unless every local user may read them.
 - A collected unit loses its exit status. Keep `--no-collect` or a `--tag`
-  when a later `wait` / `tail` / `jobs` lookup needs the result.
+  when a later `wait` needs the result; `logs --tag` still reads a
+  collected job's output from the journal.
 - Prefer `--json` plus `show -P` when scripting over `status` text.
 - Shell completion (bash, zsh, fish) completes subcommands, unit names
   and files, tags, sessions, slices, env keys, priorities, and property
