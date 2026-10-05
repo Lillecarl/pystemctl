@@ -1,0 +1,134 @@
+---
+name: pystemctl
+description: Inspect and control systemd units and run ephemeral user units with pystemctl, query logs with pyjournalctl. Use when starting one-shot jobs, checking unit status, tailing output, waiting on units, listing jobs by tag or session, or working with pystemctl profiles.
+---
+
+# pystemctl
+
+Python reimplementation of `systemctl` and `journalctl`, plus helpers for
+ephemeral (transient) user units. Two entry points: `pystemctl` and
+`pyjournalctl`.
+
+## Scope
+
+Default scope is `--user` (calling user's manager). Pass `--system` for the
+system manager. Most commands accept `--json` for machine-readable output.
+
+```sh
+pystemctl list
+pystemctl --system status nginx.service
+pystemctl show -P ActiveState -P SubState myunit.service
+```
+
+## Run an ephemeral unit
+
+`pystemctl run` starts a command as a transient unit. It does not inherit the
+caller's environment or cwd; use a profile or explicit flags.
+
+```sh
+pystemctl run --wait -- sleep 5
+pystemctl run --tag deploy --session abc -- ./build.sh
+pystemctl run --profile gpu --nice 10 --slice batch.slice -- python train.py
+pystemctl run --unit my-job --remain-after-exit --no-collect -- ./job.sh
+pystemctl run --setenv KEY=VALUE --property MemoryMax=1G -- ./app
+```
+
+Key flags: `--unit NAME`, `--profile NAME`, `--description/-d`,
+`--working-directory/-D`, `--setenv/-E KEY=VALUE` (repeatable),
+`--property/-P NAME=VALUE` (repeatable), `--type simple|exec|oneshot|idle`,
+`--remain-after-exit`, `--collect` / `--no-collect`, `--replace`,
+`--no-block`, `--wait`, `--runtime-max SECONDS`, `--nice N`, `--slice SLICE`,
+`--shell` (run through `sh -c`), `--tag/-T TAG` (repeatable), `--session ID`.
+
+Collect rule: explicit `--collect` / `--no-collect` wins. Otherwise a tagged
+job is kept (so its exit status stays readable) and an untagged job is
+collected once it stops.
+
+## Unit lifecycle and inspection
+
+```sh
+pystemctl status myunit.service -n 20
+pystemctl start|stop|restart|reload UNIT...
+pystemctl rm UNIT...              # stop and forget transient units
+pystemctl is-active|is-failed|is-enabled UNIT...
+pystemctl enable|disable UNIT...
+pystemctl cat UNIT...             # show unit file contents
+pystemctl daemon-reload
+pystemctl list --all --type service --state running
+pystemctl list-unit-files --type service
+```
+
+`status` takes `-n/--lines N` for recent log replay and `--no-journal` to
+skip logs.
+
+## Jobs, wait, tail
+
+`jobs` lists ephemeral jobs. Filter by tag (newest job carrying every tag) or
+session. `wait` blocks until a unit finishes or a log line matches. `tail`
+follows output until the unit stops or a line matches.
+
+```sh
+pystemctl jobs --tag deploy
+pystemctl jobs --all --any-session
+pystemctl jobs --follow
+pystemctl wait myunit.service --timeout 30 --grep READY --lines 200
+pystemctl wait --tag deploy --timeout 60
+pystemctl tail myunit.service -n 200 -f
+pystemctl tail --tag deploy --grep ERROR --until-exit
+```
+
+Target selector for `wait` / `tail`: positional `UNIT` or `--tag/-T TAG`
+(mutually exclusive, one is required).
+
+## Logs and journal
+
+```sh
+pystemctl logs myunit.service -n 50 --since '2026-01-01' -o cat
+pystemctl logs myunit.service -f -p info -b
+pyjournalctl -u myunit.service --user-unit other.service -n 100 -o short-precise
+pyjournalctl --since '-1h' -p err --json
+```
+
+Shared log flags: `-n/--lines N`, `--since`, `--until`, `-p/--priority LEVEL`,
+`-b/--boot [ID]`, `-o/--output short|short-iso|short-precise|short-full|cat|json|json-pretty|verbose`,
+`-f/--follow`.
+
+## Profiles
+
+Named defaults in `profiles.toml` under the user config dir then the site
+config dir (`pystemctl profile path` shows the search path). CLI flags win
+over the profile.
+
+```toml
+[profiles.gpu]
+description = "GPU batch job"
+inherit_env = ["PATH", "CUDA_*", "HF_*"]
+env = { PYTHONUNBUFFERED = "1" }
+working_directory_mode = "caller"  # caller | static | as-is
+# working_directory = "/srv/jobs"  # with mode static or as-is
+unit_type = "oneshot"
+tags = ["gpu"]
+slice = "batch.slice"
+nice = 10
+runtime_max = 3600.0
+remain_after_exit = true
+collect = false
+[profiles.gpu.properties]
+MemoryMax = "8G"
+```
+
+```sh
+pystemctl profile list
+pystemctl profile show gpu
+```
+
+Profile completion for `--profile` comes from these files; argcomplete
+resolves it at completion time.
+
+## Notes
+
+- Transient units do not inherit the environment. A missing env var in a job
+  usually means the profile's `inherit_env` glob does not cover it.
+- A collected unit loses its exit status. Keep `--no-collect` or a `--tag`
+  when a later `wait` / `tail` / `jobs` lookup needs the result.
+- Prefer `--json` plus `show -P` when scripting over `status` text.

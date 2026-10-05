@@ -37,7 +37,11 @@ buildPythonPackage rec {
     let
       register-python-argcomplete = lib.getExe' argcomplete "register-python-argcomplete";
     in
-    lib.optionalString (stdenv.buildPlatform.canExecute stdenv.hostPlatform) ''
+    ''
+      install -Dm444 ${./skills/pystemctl/SKILL.md} \
+        $out/share/skills/pystemctl/pystemctl/SKILL.md
+    ''
+    + lib.optionalString (stdenv.buildPlatform.canExecute stdenv.hostPlatform) ''
       export PATH="$out/bin:$PATH"
       for cmd in pystemctl pyjournalctl; do
         installShellCompletion --cmd "$cmd" \
