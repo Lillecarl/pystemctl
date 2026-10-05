@@ -42,18 +42,18 @@ def _query_states(
 
 
 async def cmd_is_active(bus: Bus, args: argparse.Namespace) -> int:
-    results = [
-        (sd.normalize_unit_name(raw), await sd.unit_active_state(bus, sd.normalize_unit_name(raw)))
-        for raw in args.units
-    ]
+    results: list[tuple[str, str]] = []
+    for raw in args.units:
+        name = sd.normalize_unit_name(raw)
+        results.append((name, await sd.unit_active_state(bus, name)))
     return _query_states(args, results, expected={"active"}, exit_code=3)
 
 
 async def cmd_is_failed(bus: Bus, args: argparse.Namespace) -> int:
-    results = [
-        (sd.normalize_unit_name(raw), await sd.unit_active_state(bus, sd.normalize_unit_name(raw)))
-        for raw in args.units
-    ]
+    results: list[tuple[str, str]] = []
+    for raw in args.units:
+        name = sd.normalize_unit_name(raw)
+        results.append((name, await sd.unit_active_state(bus, name)))
     return _query_states(args, results, expected={"failed"}, exit_code=1)
 
 

@@ -9,6 +9,7 @@ from conftest import BUS
 
 from pystemctl.bus import Scope
 from pystemctl.cli.commands import units as units_cmd
+from pystemctl.errors import UnitNotFoundError
 
 
 def _args(**overrides: object) -> argparse.Namespace:
@@ -112,3 +113,22 @@ def test_status_never_ran_json_still_marks_not_found(
     code = anyio.run(units_cmd.cmd_status, BUS, _args(units=["typo.service"], json=True))
     assert code == 4
     assert json.loads(capsys.readouterr().out)["journal"] == []
+
+
+def test_status_invalid_name_reports_not_found(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A name LoadUnit refuses raises UnitNotFoundError; status says so.
+
+    Well-formed missing names return a not-found path instead of raising,
+    so this branch is only reachable for invalid names -- verified live
+    with `status ///`, which LoadUnit rejects.
+    """
+
+    async def refuse(bus: object, name: str) -> dict[str, object]:
+        raise UnitNotFoundError(name)
+
+    monkeypatch.setattr(units_cmd.sd, "unit_properties", refuse)
+    code = anyio.run(units_cmd.cmd_status, BUS, _args(units=["///.service"]))
+    assert code == 4
+    assert "could not be found" in capsys.readouterr().out

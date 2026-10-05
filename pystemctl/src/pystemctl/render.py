@@ -100,7 +100,3 @@ def format_unit_status(name: str, props: Mapping[str, Any]) -> str:
         lines.append(f"     CGroup: {cgroup}")
 
     return "\n".join(lines)
-
-
-def exit_status_for_state(active_state: str) -> int:
-    return 0 if active_state == "active" else 3
