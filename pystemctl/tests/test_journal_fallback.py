@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import argparse
 from collections.abc import Sequence
 from functools import partial
 
@@ -10,6 +9,7 @@ from conftest import BUS
 
 from pystemctl import journal as jr
 from pystemctl.cli import helpers
+from pystemctl.cli.args import MultiTargetArgs
 from pystemctl.errors import PystemctlError
 from pystemctl.journal import reader
 from pystemctl.systemd.transient import TransientSpec, build_transient_properties
@@ -141,10 +141,8 @@ def test_tag_matches_share_one_conjunction(
     assert calls == [("match", "PYSTEMCTL_TAG=a"), ("match", "PYSTEMCTL_TAG=b")]
 
 
-def _resolve_args(**overrides: object) -> argparse.Namespace:
-    values: dict[str, object] = {"units": [], "tags": [], "session": None}
-    values.update(overrides)
-    return argparse.Namespace(**values)
+def _resolve_args(units: list[str] | None = None, tags: list[str] | None = None) -> MultiTargetArgs:
+    return MultiTargetArgs(units=units or [], tags=tags or [], session=None)
 
 
 def test_resolve_units_falls_back_to_the_journal(

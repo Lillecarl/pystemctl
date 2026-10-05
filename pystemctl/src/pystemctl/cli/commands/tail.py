@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import argparse
 import re
 
 import anyio
@@ -10,6 +9,7 @@ import anyio
 from ... import journal as jr
 from ... import systemd as sd
 from ...bus import Bus
+from ..args import TailArgs
 from ..helpers import (
     TIMEOUT_EXIT_CODE,
     NoTimeout,
@@ -25,7 +25,7 @@ from ..output import warn
 DEFAULT_REPLAY = 200
 
 
-async def cmd_tail(bus: Bus, args: argparse.Namespace) -> int:
+async def cmd_tail(bus: Bus, args: TailArgs) -> int:
     name, props = await resolve_existing(bus, args)
 
     outcome = WatchOutcome(props=props)
@@ -57,7 +57,7 @@ async def cmd_tail(bus: Bus, args: argparse.Namespace) -> int:
         # see the end either. The note always fires; the code follows the
         # mode: --until-exit promises an outcome, --grep promises a match,
         # and a plain follow already printed what arrived.
-        timeout_note(args, name)
+        timeout_note(args.timeout, name)
         if args.until_exit:
             return TIMEOUT_EXIT_CODE
         if args.grep and not outcome.matched:
@@ -67,7 +67,7 @@ async def cmd_tail(bus: Bus, args: argparse.Namespace) -> int:
     return _report(args, name, outcome)
 
 
-async def _replay(name: str, args: argparse.Namespace, replay: int) -> None:
+async def _replay(name: str, args: TailArgs, replay: int) -> None:
     """Print the last ``replay`` lines and return, like a plain tail."""
     system_units, user_units = unit_groups([name], args.scope)
     pattern = re.compile(args.grep) if args.grep else None
@@ -83,7 +83,7 @@ async def _replay(name: str, args: argparse.Namespace, replay: int) -> None:
             print(line, flush=True)
 
 
-def _report(args: argparse.Namespace, name: str, outcome: WatchOutcome) -> int:
+def _report(args: TailArgs, name: str, outcome: WatchOutcome) -> int:
     if args.grep:
         return 0 if outcome.matched else 1
     if args.until_exit:

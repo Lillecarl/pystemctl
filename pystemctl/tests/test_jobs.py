@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import argparse
 import json
 from collections.abc import Sequence
 
@@ -8,6 +7,7 @@ import anyio
 import pytest
 from conftest import BUS
 
+from pystemctl.cli.args import JobsArgs
 from pystemctl.cli.commands import jobs as jobs_cmd
 from pystemctl.systemd.jobs import Job
 from pystemctl.systemd.units import Unit
@@ -91,18 +91,21 @@ def test_exit_status_only_for_exit_code_result() -> None:
     assert job.exit_status is None
 
 
-def _cmd_args(**overrides: object) -> argparse.Namespace:
-    values: dict[str, object] = {
-        "any_session": False,
-        "session": None,
-        "tags": [],
-        "all": True,
-        "all_transient": False,
-        "follow": False,
-        "json": False,
-    }
-    values.update(overrides)
-    return argparse.Namespace(**values)
+def _cmd_args(
+    session: str | None = None,
+    any_session: bool = False,
+    all_transient: bool = False,
+    json: bool = False,
+) -> JobsArgs:
+    return JobsArgs(
+        any_session=any_session,
+        session=session,
+        tags=[],
+        all=True,
+        all_transient=all_transient,
+        follow=False,
+        json=json,
+    )
 
 
 def _collecting(

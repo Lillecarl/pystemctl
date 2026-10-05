@@ -1,17 +1,16 @@
 from __future__ import annotations
 
-import argparse
-
 import anyio
 import pytest
 from conftest import BUS
 
 from pystemctl.bus import Scope
+from pystemctl.cli.args import LogsArgs
 from pystemctl.cli.commands import logs as logs_cmd
 
 
-def _args(units: list[str]) -> argparse.Namespace:
-    return argparse.Namespace(units=units, scope=Scope.USER)
+def _args(units: list[str]) -> LogsArgs:
+    return LogsArgs(units=units, scope=Scope.USER)
 
 
 def _setup(

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import argparse
 import json
 
 import anyio
@@ -8,23 +7,22 @@ import pytest
 from conftest import BUS
 
 from pystemctl.bus import Scope
+from pystemctl.cli.args import ListArgs, ListFilesArgs, StatusArgs
 from pystemctl.cli.commands import units as units_cmd
 from pystemctl.errors import UnitNotFoundError
 from pystemctl.systemd import Unit
 
 
-def _args(**overrides: object) -> argparse.Namespace:
-    values: dict[str, object] = {
-        "units": [],
-        "tags": [],
-        "session": None,
-        "lines": 10,
-        "scope": Scope.USER,
-        "json": False,
-        "no_journal": False,
-    }
-    values.update(overrides)
-    return argparse.Namespace(**values)
+def _args(units: list[str] | None = None, json: bool = False) -> StatusArgs:
+    return StatusArgs(
+        units=units or [],
+        tags=[],
+        session=None,
+        lines=10,
+        scope=Scope.USER,
+        json=json,
+        no_journal=False,
+    )
 
 
 def _properties(monkeypatch: pytest.MonkeyPatch, props: dict[str, object]) -> None:
@@ -162,7 +160,7 @@ def test_list_json_uses_the_shared_state_keys(
         return [_listed_unit()]
 
     monkeypatch.setattr(units_cmd.sd, "list_units", listing)
-    args = argparse.Namespace(all=True, type=None, state=None, ephemeral=False, json=True)
+    args = ListArgs(all=True, type=None, state=None, ephemeral=False, json=True)
     assert anyio.run(units_cmd.cmd_list, BUS, args) == 0
     payload = json.loads(capsys.readouterr().out)
     assert payload == [
@@ -184,7 +182,7 @@ def test_list_unit_files_json_names_the_file_state(
         return [("/usr/lib/systemd/system/a.service", "enabled")]
 
     monkeypatch.setattr(units_cmd.sd, "list_unit_files", listing)
-    args = argparse.Namespace(type=None, state=None, json=True)
+    args = ListFilesArgs(type=None, state=None, json=True)
     assert anyio.run(units_cmd.cmd_list_unit_files, BUS, args) == 0
     payload = json.loads(capsys.readouterr().out)
     assert payload == [{"unit_file": "a.service", "unit_file_state": "enabled"}]

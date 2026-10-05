@@ -6,31 +6,33 @@ import argparse
 
 from .. import journal as jr
 from .. import systemd as sd
-from ..bus import Scope, connect
+from ..bus import connect
+from .args import JournalArgs
 from .helpers import tail_count
 
 
 async def dispatch(args: argparse.Namespace) -> int:
-    scope = getattr(args, "scope", Scope.USER)
-    async with connect(scope) as bus:
-        return await args.handler(bus, args)
+    command = args.args_type.from_namespace(args)
+    async with connect(command.scope) as bus:
+        return await args.handler(bus, command)
 
 
 async def journal_dispatch(args: argparse.Namespace) -> int:
-    system_units = [sd.normalize_unit_name(unit) for unit in args.system_units]
-    user_units = [sd.normalize_unit_name(unit) for unit in args.user_units]
-    since = jr.parse_timestamp(args.since) if args.since else None
-    until = jr.parse_timestamp(args.until) if args.until else None
-    priority = jr.priority_value(args.priority) if args.priority else None
+    command = JournalArgs.from_namespace(args)
+    system_units = [sd.normalize_unit_name(unit) for unit in command.system_units]
+    user_units = [sd.normalize_unit_name(unit) for unit in command.user_units]
+    since = jr.parse_timestamp(command.since) if command.since else None
+    until = jr.parse_timestamp(command.until) if command.until else None
+    priority = jr.priority_value(command.priority) if command.priority else None
     await jr.print_entries(
         system_units=system_units,
         user_units=user_units,
-        tail=tail_count(args.lines, args.follow, since),
-        follow=args.follow,
+        tail=tail_count(command.lines, command.follow, since),
+        follow=command.follow,
         since=since,
         until=until,
         priority=priority,
-        boot=args.boot,
-        mode="json" if args.json else args.output,
+        boot=command.boot,
+        mode="json" if command.json else command.output,
     )
     return 0

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import argparse
 from collections.abc import AsyncIterator
 from functools import partial
 
@@ -10,6 +9,7 @@ from conftest import BUS, as_task_group
 
 from pystemctl.bus import Scope
 from pystemctl.cli import helpers
+from pystemctl.cli.args import TailArgs, WatchArgs
 from pystemctl.cli.commands import tail as tail_cmd
 from pystemctl.cli.helpers import WatchOutcome
 
@@ -69,7 +69,7 @@ def test_follow_matching_tolerates_commands_without_grep(
         yield "hello"
 
     monkeypatch.setattr(helpers.jr, "follow_lines", fake)
-    args = argparse.Namespace(json=False, scope=Scope.USER)
+    args = WatchArgs(json=False, scope=Scope.USER)
     watch = partial(
         helpers.follow_matching,
         "x.service",
@@ -96,7 +96,7 @@ def test_follow_matching_forwards_the_flag(
 
     monkeypatch.setattr(helpers.jr, "follow_lines", fake)
     group = as_task_group(_Group())
-    args = argparse.Namespace(grep=None, json=False, scope=Scope.USER)
+    args = TailArgs(grep=None, json=False, scope=Scope.USER)
     watch = partial(
         helpers.follow_matching,
         "x.service",
@@ -123,7 +123,7 @@ def test_follow_matching_skips_notices_by_default(
         yield "hello"
 
     monkeypatch.setattr(helpers.jr, "follow_lines", fake)
-    args = argparse.Namespace(grep=None, json=False, scope=Scope.USER)
+    args = TailArgs(grep=None, json=False, scope=Scope.USER)
     watch = partial(
         helpers.follow_matching,
         "x.service",
@@ -157,18 +157,16 @@ def _stall_tail(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(helpers.jr, "follow_lines", slow_lines)
 
 
-def _tail_args(**overrides: object) -> argparse.Namespace:
-    values: dict[str, object] = {
-        "lines": None,
-        "follow": True,
-        "until_exit": False,
-        "grep": None,
-        "timeout": 0.05,
-        "json": False,
-        "scope": Scope.USER,
-    }
-    values.update(overrides)
-    return argparse.Namespace(**values)
+def _tail_args(grep: str | None = None, until_exit: bool = False) -> TailArgs:
+    return TailArgs(
+        lines=None,
+        follow=True,
+        until_exit=until_exit,
+        grep=grep,
+        timeout=0.05,
+        json=False,
+        scope=Scope.USER,
+    )
 
 
 def test_tail_until_exit_timeout_is_not_success(

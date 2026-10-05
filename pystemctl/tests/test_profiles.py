@@ -3,6 +3,7 @@ from __future__ import annotations
 import pytest
 
 from pystemctl import profiles
+from pystemctl.cli.args import RunArgs
 from pystemctl.errors import PystemctlError
 
 
@@ -35,19 +36,7 @@ def test_working_directory_static_mode() -> None:
 
 def test_apply_cli_overrides_prefers_cli() -> None:
     profile = profiles.Profile(name="p", nice=5, tags=("base",))
-    args = type(
-        "A",
-        (),
-        {
-            "nice": 10,
-            "tags": ["extra"],
-            "type": None,
-            "description": None,
-            "working_directory": None,
-            "slice_name": None,
-            "runtime_max": None,
-        },
-    )()
+    args = RunArgs(nice=10, tags=["extra"])
     updated = profiles.apply_cli_overrides(profile, args)
     assert updated.nice == 10
     assert updated.tags == ("base", "extra")
@@ -60,22 +49,13 @@ def test_profile_from_table_rejects_unknown_key() -> None:
         profiles._profile_from_table("p", {"nope": 1}, Path("x"))
 
 
-def test_apply_cli_overrides_is_identity_without_flags() -> None:
+def test_apply_cli_overrides_defaults_only_set_unit_type() -> None:
+    # The parser defaults --type to "simple", which is always truthy, so a
+    # plain parse still stamps the unit type while leaving the rest alone.
     profile = profiles.Profile(name="p", nice=5)
-    args = type(
-        "A",
-        (),
-        {
-            "nice": None,
-            "tags": [],
-            "type": None,
-            "description": None,
-            "working_directory": None,
-            "slice_name": None,
-            "runtime_max": None,
-        },
-    )()
-    assert profiles.apply_cli_overrides(profile, args) is profile
+    updated = profiles.apply_cli_overrides(profile, RunArgs())
+    assert updated.nice == 5
+    assert updated.unit_type == "simple"
 
 
 def test_choose_collect_tagged_job_is_kept() -> None:

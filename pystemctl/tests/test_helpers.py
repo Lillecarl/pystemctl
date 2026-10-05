@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import argparse
 from collections.abc import AsyncIterator
 from functools import partial
 from typing import Any
@@ -11,6 +10,7 @@ from conftest import BUS
 
 from pystemctl.bus import Scope
 from pystemctl.cli import helpers
+from pystemctl.cli.args import SingleTargetArgs, WatchArgs
 from pystemctl.errors import PystemctlError, UnitNotFoundError
 
 
@@ -91,7 +91,7 @@ def test_resolve_existing_points_a_collected_unit_at_its_logs(
 ) -> None:
     _resolve_setup(monkeypatch, {"LoadState": "not-found"}, trace=True)
     with pytest.raises(PystemctlError, match="already finished and was collected"):
-        anyio.run(helpers.resolve_existing, BUS, argparse.Namespace())
+        anyio.run(helpers.resolve_existing, BUS, SingleTargetArgs())
 
 
 def test_resolve_existing_without_a_trace_is_not_found(
@@ -99,13 +99,11 @@ def test_resolve_existing_without_a_trace_is_not_found(
 ) -> None:
     _resolve_setup(monkeypatch, {"LoadState": "not-found"}, trace=False)
     with pytest.raises(UnitNotFoundError, match="not found"):
-        anyio.run(helpers.resolve_existing, BUS, argparse.Namespace())
+        anyio.run(helpers.resolve_existing, BUS, SingleTargetArgs())
 
 
-def _watch_args(**overrides: object) -> argparse.Namespace:
-    values: dict[str, object] = {"grep": None, "json": False, "scope": Scope.USER}
-    values.update(overrides)
-    return argparse.Namespace(**values)
+def _watch_args(grep: str | None = None) -> WatchArgs:
+    return WatchArgs(grep=grep, json=False, scope=Scope.USER)
 
 
 def _watch_lines(

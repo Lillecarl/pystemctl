@@ -2,12 +2,11 @@
 
 from __future__ import annotations
 
-import argparse
-
 import anyio
 
 from ... import systemd as sd
 from ...bus import Bus
+from ..args import WaitArgs
 from ..helpers import (
     TIMEOUT_EXIT_CODE,
     NoTimeout,
@@ -22,7 +21,7 @@ from ..output import emit_json, warn
 DEFAULT_REPLAY = 200
 
 
-async def cmd_wait(bus: Bus, args: argparse.Namespace) -> int:
+async def cmd_wait(bus: Bus, args: WaitArgs) -> int:
     name, _ = await resolve_existing(bus, args)
 
     outcome = WatchOutcome()
@@ -50,13 +49,13 @@ async def cmd_wait(bus: Bus, args: argparse.Namespace) -> int:
     if outcome.matched:
         return _report(args, name, outcome)
     if args.timeout is not None and getattr(scope, "cancelled_caught", False):
-        return _report_timeout(args, name, outcome)
+        return _report_timeout(args.timeout, args, name, outcome)
     if not outcome.props:
         outcome.props = await sd.try_unit_properties(bus, name)
     return _report(args, name, outcome)
 
 
-def _report(args: argparse.Namespace, name: str, outcome: WatchOutcome) -> int:
+def _report(args: WaitArgs, name: str, outcome: WatchOutcome) -> int:
     result = outcome.props.get("Result")
     status = outcome.props.get("ExecMainStatus")
 
@@ -79,7 +78,7 @@ def _report(args: argparse.Namespace, name: str, outcome: WatchOutcome) -> int:
     return code
 
 
-def _report_timeout(args: argparse.Namespace, name: str, outcome: WatchOutcome) -> int:
+def _report_timeout(timeout: float, args: WaitArgs, name: str, outcome: WatchOutcome) -> int:
     """Report a wait that outlived its --timeout.
 
     The still-running unit keeps running; only the watching stops. Silence
@@ -93,12 +92,12 @@ def _report_timeout(args: argparse.Namespace, name: str, outcome: WatchOutcome) 
         "exit_status": outcome.props.get("ExecMainStatus"),
         "matched": False,
         "timed_out": True,
-        "timeout": args.timeout,
+        "timeout": timeout,
         "exit_code": TIMEOUT_EXIT_CODE,
     }
 
     if args.json:
         emit_json(payload)
     else:
-        timeout_note(args, name)
+        timeout_note(timeout, name)
     return TIMEOUT_EXIT_CODE

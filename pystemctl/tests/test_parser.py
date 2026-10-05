@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import argparse
+import dataclasses
 
 import pytest
 
 from pystemctl.bus import Scope
+from pystemctl.cli.args import JournalArgs, RunArgs
 from pystemctl.cli.commands.run import strip_separator
 from pystemctl.cli.parser import build_journal_parser, build_parser
 
@@ -215,3 +217,86 @@ def test_journal_parser_flags() -> None:
     assert args.lines == 3
     assert args.follow is True
     assert args.boot is True
+
+
+_COMMAND_ARGV = {
+    "run": ["run", "--", "true"],
+    "list": ["list"],
+    "ls": ["ls"],
+    "units": ["units"],
+    "list-unit-files": ["list-unit-files"],
+    "status": ["status"],
+    "start": ["start", "x.service"],
+    "stop": ["stop", "x.service"],
+    "restart": ["restart", "x.service"],
+    "reload": ["reload", "x.service"],
+    "rm": ["rm", "x.service"],
+    "is-active": ["is-active", "x.service"],
+    "is-failed": ["is-failed", "x.service"],
+    "is-enabled": ["is-enabled", "x.service"],
+    "enable": ["enable", "x.service"],
+    "disable": ["disable", "x.service"],
+    "cat": ["cat", "x.service"],
+    "show": ["show"],
+    "daemon-reload": ["daemon-reload"],
+    "logs": ["logs"],
+    "jobs": ["jobs"],
+    "wait": ["wait", "x.service"],
+    "tail": ["tail", "x.service"],
+    "profile": ["profile"],
+}
+
+
+@pytest.mark.parametrize("command", sorted(_COMMAND_ARGV))
+def test_every_command_converts_to_its_typed_args(
+    parser: argparse.ArgumentParser, command: str
+) -> None:
+    """The parser and the typed args agree, in both directions.
+
+    Every attribute a real parse sets has a field waiting for it, and the
+    conversion runs without raising. A new flag without a field fails here,
+    not silently at the handler.
+    """
+    args_type = _sub(parser, command).get_default("args_type")
+    assert args_type is not None, command
+    ns = _parse(parser, _COMMAND_ARGV[command])
+    args_type.from_namespace(ns)
+    parsed = set(vars(ns)) - {"handler", "args_type"}
+    if not isinstance(ns.command, list):
+        # Elsewhere "command" is the subcommand name argparse records, not a
+        # flag; only run's positional shares the name and owns the field.
+        parsed.discard("command")
+    fields = {field.name for field in dataclasses.fields(args_type)}
+    assert parsed == fields, command
+
+
+def test_run_conversion_carries_every_flag(parser: argparse.ArgumentParser) -> None:
+    ns = _parse(parser, ["run", "--tag", "a", "--wait", "--collect", "--", "true"])
+    args = RunArgs.from_namespace(ns)
+    assert args.tags == ["a"]
+    assert args.wait is True
+    assert args.collect is True
+    assert args.command == ["--", "true"]
+    assert args.scope is Scope.USER
+
+
+def test_wait_conversion_defaults_match_the_parser(parser: argparse.ArgumentParser) -> None:
+    ns = _parse(parser, ["wait", "--tag", "a"])
+    args = _sub(parser, "wait").get_default("args_type").from_namespace(ns)
+    assert args.unit is None
+    assert args.tags == ["a"]
+    assert args.lines == 200
+    assert args.timeout is None
+    assert args.grep is None
+
+
+def test_journal_conversion_covers_the_journal_parser() -> None:
+    ns = _parse(build_journal_parser(), ["-u", "a.service", "--json"])
+    args = JournalArgs.from_namespace(ns)
+    assert args.system_units == ["a.service"]
+    assert args.user_units == []
+    assert args.json is True
+    assert args.output == "short"
+    parsed = set(vars(ns))
+    fields = {field.name for field in dataclasses.fields(JournalArgs)}
+    assert parsed == fields

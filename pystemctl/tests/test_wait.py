@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import argparse
 import json
 from collections.abc import AsyncIterator
 from typing import cast
@@ -11,13 +10,14 @@ from conftest import BUS
 
 from pystemctl.bus import Bus, Scope
 from pystemctl.cli import helpers
+from pystemctl.cli.args import WaitArgs
 from pystemctl.cli.commands import wait as wait_cmd
 from pystemctl.cli.commands.wait import _report, _report_timeout
 from pystemctl.cli.helpers import WatchOutcome
 
 
-def _args(json_mode: bool = False) -> argparse.Namespace:
-    return argparse.Namespace(json=json_mode)
+def _args(json_mode: bool = False) -> WaitArgs:
+    return WaitArgs(json=json_mode)
 
 
 @pytest.mark.parametrize(
@@ -46,15 +46,13 @@ def test_report_no_result_reads_as_success() -> None:
 
 
 def test_report_timeout_names_the_timeout(capsys: pytest.CaptureFixture[str]) -> None:
-    args = argparse.Namespace(json=False, timeout=3)
-    code = _report_timeout(args, "x.service", WatchOutcome(props={}))
+    code = _report_timeout(3, WaitArgs(json=False), "x.service", WatchOutcome(props={}))
     assert code == 124
     assert "timed out after 3s" in capsys.readouterr().err
 
 
 def test_report_timeout_json_marks_the_giveup(capsys: pytest.CaptureFixture[str]) -> None:
-    args = argparse.Namespace(json=True, timeout=2.5)
-    code = _report_timeout(args, "x.service", WatchOutcome(props={}))
+    code = _report_timeout(2.5, WaitArgs(json=True), "x.service", WatchOutcome(props={}))
     payload = json.loads(capsys.readouterr().out)
     assert payload["timed_out"] is True
     assert payload["timeout"] == 2.5
@@ -77,7 +75,7 @@ def test_cmd_wait_timeout_is_not_success(
     monkeypatch.setattr(wait_cmd, "resolve_existing", resolve)
     monkeypatch.setattr(wait_cmd.sd, "wait_until_finished", slow)
     monkeypatch.setattr(wait_cmd.sd, "try_unit_properties", slow)
-    args = argparse.Namespace(timeout=0.05, grep=None, json=False)
+    args = WaitArgs(timeout=0.05, grep=None, json=False)
     code = anyio.run(wait_cmd.cmd_wait, BUS, args)
     assert code == 124
     assert "timed out" in capsys.readouterr().err
@@ -111,9 +109,7 @@ def test_wait_matches_lifecycle_notices(
     monkeypatch.setattr(wait_cmd, "resolve_existing", resolve)
     monkeypatch.setattr(wait_cmd.sd, "wait_until_finished", finished)
     monkeypatch.setattr(helpers.jr, "follow_lines", lines)
-    args = argparse.Namespace(
-        timeout=None, grep="Started", lines=None, json=False, scope=Scope.USER
-    )
+    args = WaitArgs(timeout=None, grep="Started", lines=None, json=False, scope=Scope.USER)
     assert anyio.run(wait_cmd.cmd_wait, BUS, args) == 0
     captured = capsys.readouterr()
     assert "Started x.service." in captured.out

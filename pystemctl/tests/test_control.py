@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import argparse
 from typing import Any
 
 import anyio
@@ -9,6 +8,7 @@ from conftest import BUS
 from jeepney.wrappers import DBusErrorResponse
 
 from pystemctl.cli import helpers
+from pystemctl.cli.args import UnitsArgs
 from pystemctl.cli.commands import control as control_cmd
 
 
@@ -37,7 +37,7 @@ def test_unit_action_names_a_missing_unit(
         raise _bus_error("org.freedesktop.systemd1.NoSuchUnit", ("Unit x.service not loaded.",))
 
     _properties(monkeypatch, {})
-    args = argparse.Namespace(units=["x"], json=False)
+    args = UnitsArgs(units=["x"], json=False)
     code = anyio.run(control_cmd._unit_action, BUS, args, fail)
     assert code == 1
     err = capsys.readouterr().err
@@ -52,7 +52,7 @@ def test_unit_action_keeps_other_errors_verbatim(
         raise _bus_error("org.freedesktop.systemd1.Failure", ("boom",))
 
     _properties(monkeypatch, {})
-    args = argparse.Namespace(units=["x"], json=False)
+    args = UnitsArgs(units=["x"], json=False)
     code = anyio.run(control_cmd._unit_action, BUS, args, fail)
     assert code == 1
     assert "boom" in capsys.readouterr().err
@@ -62,7 +62,7 @@ def test_rm_reports_a_unit_that_was_never_there(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     _properties(monkeypatch, {})
-    args = argparse.Namespace(units=["ghost"], json=False)
+    args = UnitsArgs(units=["ghost"], json=False)
     code = anyio.run(control_cmd.cmd_rm, BUS, args)
     assert code == 1
     captured = capsys.readouterr()
@@ -76,7 +76,7 @@ def test_rm_fails_on_a_unit_that_is_already_gone(
     # A collected unit is not loaded, so there is nothing to remove: like
     # rm(1) on a missing file, that is an error, not a quiet success.
     _properties(monkeypatch, {"LoadState": "not-found"})
-    args = argparse.Namespace(units=["old.service"], json=False)
+    args = UnitsArgs(units=["old.service"], json=False)
     code = anyio.run(control_cmd.cmd_rm, BUS, args)
     assert code == 1
     captured = capsys.readouterr()
@@ -103,7 +103,7 @@ def test_stop_warns_about_another_sessions_unit(
     )
     monkeypatch.setattr(helpers, "session_id", lambda: "mine")
     monkeypatch.setattr(control_cmd.sd, "wait_job", waited)
-    args = argparse.Namespace(units=["theirs.service"], json=False)
+    args = UnitsArgs(units=["theirs.service"], json=False)
     code = anyio.run(control_cmd._unit_action, BUS, args, stop)
     assert code == 0
     err = capsys.readouterr().err
@@ -129,7 +129,7 @@ def test_stop_stays_quiet_for_its_own_session(
     )
     monkeypatch.setattr(helpers, "session_id", lambda: "mine")
     monkeypatch.setattr(control_cmd.sd, "wait_job", waited)
-    args = argparse.Namespace(units=["mine.service"], json=False)
+    args = UnitsArgs(units=["mine.service"], json=False)
     code = anyio.run(control_cmd._unit_action, BUS, args, stop)
     assert code == 0
     assert capsys.readouterr().err == ""

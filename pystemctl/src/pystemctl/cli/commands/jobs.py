@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import argparse
 import datetime as dt
 from collections.abc import Awaitable, Callable
 
@@ -13,6 +12,7 @@ from ...bus import Bus
 from ...render import LOCAL_TIMEZONE, format_duration, format_table
 from ...systemd.jobs import Job
 from ...systemd.tags import session_id
+from ..args import BaseArgs, JobsArgs
 from ..helpers import unit_payload
 from ..output import emit_json, warn
 
@@ -21,7 +21,7 @@ Snapshot = Callable[[], Awaitable[list[Job]]]
 POLL_INTERVAL = 1.0
 
 
-async def cmd_jobs(bus: Bus, args: argparse.Namespace) -> int:
+async def cmd_jobs(bus: Bus, args: JobsArgs) -> int:
     session = None if args.any_session else (args.session or session_id())
 
     async def snapshot(current: str | None) -> list[Job]:
@@ -68,7 +68,7 @@ async def cmd_jobs(bus: Bus, args: argparse.Namespace) -> int:
     return 0
 
 
-def _visible(found: list[Job], args: argparse.Namespace) -> tuple[list[Job], int]:
+def _visible(found: list[Job], args: JobsArgs) -> tuple[list[Job], int]:
     """Keep pystemctl's own jobs, counting the foreign units left out.
 
     Every unit pystemctl starts carries its session in the environment, so a
@@ -76,13 +76,13 @@ def _visible(found: list[Job], args: argparse.Namespace) -> tuple[list[Job], int
     another tool's transient units. Those drown the list, hence they stay
     hidden unless --all-transient is passed.
     """
-    if getattr(args, "all_transient", False):
+    if args.all_transient:
         return found, 0
     marked = [job for job in found if job.session is not None]
     return marked, len(found) - len(marked)
 
 
-async def _follow(snapshot: Snapshot, args: argparse.Namespace) -> int:
+async def _follow(snapshot: Snapshot, args: BaseArgs) -> int:
     """Emit a line per job added, changed, or removed, until interrupted.
 
     State is polled: a single PropertiesChanged match cannot cover every
@@ -115,7 +115,7 @@ def _fingerprint(payload: dict[str, object]) -> tuple[object, ...]:
     )
 
 
-def _emit_follow_line(args: argparse.Namespace, event: str, payload: dict[str, object]) -> None:
+def _emit_follow_line(args: BaseArgs, event: str, payload: dict[str, object]) -> None:
     if args.json:
         emit_json({"event": event, "job": payload}, flush=True)
         return

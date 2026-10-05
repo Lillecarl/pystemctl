@@ -10,8 +10,22 @@ from typing import Protocol, cast
 from .. import journal as jr
 from ..bus import Bus, Scope
 from . import commands
+from .args import (
+    BaseArgs,
+    JobsArgs,
+    ListArgs,
+    ListFilesArgs,
+    LogsArgs,
+    ProfileArgs,
+    RunArgs,
+    ShowArgs,
+    StatusArgs,
+    TailArgs,
+    UnitsArgs,
+    WaitArgs,
+)
 
-_Handler = Callable[[Bus, argparse.Namespace], Awaitable[int]]
+_Handler = Callable[..., Awaitable[int]]
 
 
 class CompletableAction(Protocol):
@@ -295,6 +309,7 @@ def build_parser() -> argparse.ArgumentParser:
         subparsers,
         "run",
         commands.cmd_run,
+        RunArgs,
         "start a command as an ephemeral unit",
         option_groups=[_job_filter_options()],
     )
@@ -342,14 +357,20 @@ def build_parser() -> argparse.ArgumentParser:
     run.add_argument("--shell", action="store_true", help="run through sh -c")
     run.add_argument("command", nargs=argparse.REMAINDER, metavar="COMMAND ...")
 
-    units = _add(subparsers, "list", commands.cmd_list, "list units", aliases=["ls", "units"])
+    units = _add(
+        subparsers, "list", commands.cmd_list, ListArgs, "list units", aliases=["ls", "units"]
+    )
     units.add_argument("--all", "-a", action="store_true", help="include inactive units")
     units.add_argument("--type", "-t", metavar="TYPE", help="filter by unit type")
     units.add_argument("--state", metavar="STATE", help="filter by active or sub state")
     units.add_argument("--ephemeral", action="store_true", help="only transient units")
 
     files = _add(
-        subparsers, "list-unit-files", commands.cmd_list_unit_files, "list installed unit files"
+        subparsers,
+        "list-unit-files",
+        commands.cmd_list_unit_files,
+        ListFilesArgs,
+        "list installed unit files",
     )
     files.add_argument("--type", "-t", metavar="TYPE")
     files.add_argument("--state", metavar="STATE")
@@ -358,6 +379,7 @@ def build_parser() -> argparse.ArgumentParser:
         subparsers,
         "status",
         commands.cmd_status,
+        StatusArgs,
         "show unit status",
         option_groups=[
             _unit_positional(required=False),
@@ -380,12 +402,13 @@ def build_parser() -> argparse.ArgumentParser:
         ("disable", commands.cmd_disable, "disable unit files"),
         ("cat", commands.cmd_cat, "show unit file contents"),
     ):
-        _add(subparsers, name, handler, help_text, option_groups=[_unit_positional()])
+        _add(subparsers, name, handler, UnitsArgs, help_text, option_groups=[_unit_positional()])
 
     show = _add(
         subparsers,
         "show",
         commands.cmd_show,
+        ShowArgs,
         "dump unit properties",
         option_groups=[_unit_positional(required=False)],
     )
@@ -398,12 +421,13 @@ def build_parser() -> argparse.ArgumentParser:
         help="print only this property; repeat for several",
     )
 
-    _add(subparsers, "daemon-reload", commands.cmd_daemon_reload, "reload unit files")
+    _add(subparsers, "daemon-reload", commands.cmd_daemon_reload, BaseArgs, "reload unit files")
 
     _add(
         subparsers,
         "logs",
         commands.cmd_logs,
+        LogsArgs,
         "show journal entries for units (tail follows live output instead)",
         option_groups=[
             _unit_positional(required=False),
@@ -418,6 +442,7 @@ def build_parser() -> argparse.ArgumentParser:
         subparsers,
         "jobs",
         commands.cmd_jobs,
+        JobsArgs,
         "list ephemeral jobs, by tag or session",
         option_groups=[_job_filter_options()],
     )
@@ -439,6 +464,7 @@ def build_parser() -> argparse.ArgumentParser:
         subparsers,
         "wait",
         commands.cmd_wait,
+        WaitArgs,
         "wait for a unit to finish or log a match (tail streams the output)",
         option_groups=[_watch_options(), _replay_option(200), _target_selector()],
     )
@@ -447,6 +473,7 @@ def build_parser() -> argparse.ArgumentParser:
         subparsers,
         "tail",
         commands.cmd_tail,
+        TailArgs,
         "follow a unit's output until it stops or a line matches "
         "(wait reports the outcome, logs reads past lines)",
         option_groups=[
@@ -462,7 +489,9 @@ def build_parser() -> argparse.ArgumentParser:
         help="keep following until the unit stops, then return its exit status",
     )
 
-    profile = _add(subparsers, "profile", commands.cmd_profile, "inspect command profiles")
+    profile = _add(
+        subparsers, "profile", commands.cmd_profile, ProfileArgs, "inspect command profiles"
+    )
     profile.add_argument("action", nargs="?", choices=["list", "show", "path"], default="list")
     profile.add_argument("name", nargs="?", metavar="NAME")
 
@@ -598,6 +627,7 @@ def _add(
     subparsers: argparse._SubParsersAction,
     name: str,
     handler: _Handler,
+    args_type: type[BaseArgs],
     help_text: str,
     *,
     aliases: Sequence[str] = (),
@@ -610,5 +640,5 @@ def _add(
         help=help_text,
         description=help_text,
     )
-    parser.set_defaults(handler=handler)
+    parser.set_defaults(handler=handler, args_type=args_type)
     return parser

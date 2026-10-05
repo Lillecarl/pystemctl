@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import argparse
 from collections.abc import Sequence
 
 import anyio
@@ -9,6 +8,7 @@ from conftest import BUS
 
 from pystemctl import systemd as sd
 from pystemctl.cli import helpers
+from pystemctl.cli.args import MultiTargetArgs
 from pystemctl.cli.parser import build_parser
 from pystemctl.errors import PystemctlError
 from pystemctl.systemd.jobs import Job
@@ -34,10 +34,8 @@ def _job(name: str) -> Job:
     return Job(unit=_unit(name), tags=["t"], session=None, environment={}, props={})
 
 
-def _args(**overrides: object) -> argparse.Namespace:
-    values: dict[str, object] = {"units": [], "tags": [], "session": None}
-    values.update(overrides)
-    return argparse.Namespace(**values)
+def _args(units: list[str] | None = None, tags: list[str] | None = None) -> MultiTargetArgs:
+    return MultiTargetArgs(units=units or [], tags=tags or [], session=None)
 
 
 def _resolving(

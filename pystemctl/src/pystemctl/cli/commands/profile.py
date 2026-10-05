@@ -2,16 +2,15 @@
 
 from __future__ import annotations
 
-import argparse
-
 from ... import profiles
 from ...bus import Bus
 from ...errors import PystemctlError
 from ...render import format_table
+from ..args import ProfileArgs
 from ..output import emit_json
 
 
-async def cmd_profile(_bus: Bus, args: argparse.Namespace) -> int:
+async def cmd_profile(_bus: Bus, args: ProfileArgs) -> int:
     available = profiles.load_profiles()
 
     if args.action == "path":

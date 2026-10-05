@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import argparse
 import datetime as dt
 from collections.abc import Sequence
 from dataclasses import dataclass, field
@@ -18,12 +17,11 @@ from ..errors import PystemctlError, UnitNotFoundError
 from ..systemd import Unit
 from ..systemd.tags import read_tags, session_id
 from ..systemd.units import environment_of
+from .args import BaseArgs, MultiTargetArgs, SingleTargetArgs, WatchArgs
 from .output import emit_json, warn
 
 
-async def _collected_fallback(
-    args: argparse.Namespace, tags: Sequence[str], missing: PystemctlError
-) -> str:
+async def _collected_fallback(scope: Scope, tags: Sequence[str], missing: PystemctlError) -> str:
     """Name of a finished job from its journal entries, or re-raise.
 
     The manager unloads a finished transient unit, so the bus cannot resolve
@@ -33,8 +31,7 @@ async def _collected_fallback(
     """
     name = None
     try:
-        system = getattr(args, "scope", Scope.USER) is Scope.SYSTEM
-        name = await jr.newest_unit_for_tags(tags, system=system)
+        name = await jr.newest_unit_for_tags(tags, system=scope is Scope.SYSTEM)
     except PystemctlError:
         name = None
     if name is None:
@@ -43,15 +40,15 @@ async def _collected_fallback(
     return name
 
 
-async def resolve_target(bus: Bus, args: argparse.Namespace) -> str:
+async def resolve_target(bus: Bus, args: SingleTargetArgs) -> str:
     """Return the unit the command should act on.
 
     A unit name is used as given. Tags select the newest matching job; when
     several matched, the others are named on stderr so a surprising choice is
     visible rather than silent.
     """
-    tags: Sequence[str] = getattr(args, "tags", None) or ()
-    if not tags and getattr(args, "unit", None):
+    tags = args.tags
+    if not tags and args.unit:
         return sd.normalize_unit_name(args.unit)
 
     try:
@@ -59,7 +56,7 @@ async def resolve_target(bus: Bus, args: argparse.Namespace) -> str:
     except PystemctlError as missing:
         if not tags:
             raise
-        return await _collected_fallback(args, tags, missing)
+        return await _collected_fallback(args.scope, tags, missing)
     if chosen is None:
         raise PystemctlError("no unit or tag given")
     if others:
@@ -71,22 +68,20 @@ async def resolve_target(bus: Bus, args: argparse.Namespace) -> str:
     return chosen.name
 
 
-async def resolve_units(bus: Bus, args: argparse.Namespace) -> list[str]:
+async def resolve_units(bus: Bus, args: MultiTargetArgs) -> list[str]:
     """Unit names from the positionals plus the newest job matching --tag.
 
     ``logs`` and ``status`` read any number of units, so tags resolve to one
     more name on the list rather than replacing it. Several matches name the
     others on stderr, the way resolve_target already does.
     """
-    units = [sd.normalize_unit_name(raw) for raw in getattr(args, "units", None) or []]
-    tags = getattr(args, "tags", None) or []
+    units = [sd.normalize_unit_name(raw) for raw in args.units]
+    tags = args.tags
     if tags:
         try:
-            chosen, others = await sd.resolve(
-                bus, tags=tags, session=getattr(args, "session", None)
-            )
+            chosen, others = await sd.resolve(bus, tags=tags, session=args.session)
         except PystemctlError as missing:
-            units.append(await _collected_fallback(args, tags, missing))
+            units.append(await _collected_fallback(args.scope, tags, missing))
         else:
             if chosen is None:
                 raise PystemctlError("give a unit name or at least one --tag")
@@ -102,7 +97,7 @@ async def resolve_units(bus: Bus, args: argparse.Namespace) -> list[str]:
     return units
 
 
-async def resolve_existing(bus: Bus, args: argparse.Namespace) -> tuple[str, dict[str, Any]]:
+async def resolve_existing(bus: Bus, args: SingleTargetArgs) -> tuple[str, dict[str, Any]]:
     """Resolve a target and read its properties, failing if it is not loaded.
 
     Returns the unit name and its property map, so a caller does not fetch the
@@ -114,7 +109,7 @@ async def resolve_existing(bus: Bus, args: argparse.Namespace) -> tuple[str, dic
     name = await resolve_target(bus, args)
     props = await sd.try_unit_properties(bus, name)
     if not props or props.get("LoadState") == "not-found":
-        if await has_journal_trace(name, getattr(args, "scope", Scope.USER)):
+        if await has_journal_trace(name, args.scope):
             raise PystemctlError(
                 f"Unit {name} already finished and was collected; see pystemctl logs {name}"
             )
@@ -122,8 +117,8 @@ async def resolve_existing(bus: Bus, args: argparse.Namespace) -> tuple[str, dic
     return name, props
 
 
-def emit(args: argparse.Namespace, text: str | None, payload: Any) -> None:
-    if getattr(args, "json", False):
+def emit(args: BaseArgs, text: str | None, payload: Any) -> None:
+    if args.json:
         emit_json(payload)
     elif text is not None:
         print(text)
@@ -260,9 +255,9 @@ def note_foreign_session(name: str, props: dict[str, Any]) -> None:
         warn(f"{name} belongs to session {session}; acting anyway")
 
 
-def timeout_note(args: argparse.Namespace, name: str) -> None:
+def timeout_note(timeout: float, name: str) -> None:
     """Say a bounded wait gave up, so silence never reads as success."""
-    warn(f"timed out after {args.timeout:g}s waiting for {name}")
+    warn(f"timed out after {timeout:g}s waiting for {name}")
 
 
 #: Exit code when a bounded wait gives up. The unit's own exit is unknown, so
@@ -287,7 +282,7 @@ def exit_code_from(props: dict[str, Any]) -> int:
 
 async def follow_matching(
     name: str,
-    args: argparse.Namespace,
+    args: WatchArgs,
     outcome: WatchOutcome,
     group: anyio.abc.TaskGroup,
     *,
@@ -308,13 +303,13 @@ async def follow_matching(
     async for line in jr.follow_lines(
         system_units=system_units,
         user_units=user_units,
-        pattern=getattr(args, "grep", None),
-        mode="json" if getattr(args, "json", False) else "cat",
+        pattern=args.grep,
+        mode="json" if args.json else "cat",
         since_lines=replay,
         skip_notices=skip_notices,
     ):
         print(line, flush=True)
-        if getattr(args, "grep", None):
+        if args.grep:
             outcome.matched = True
             if stop_on_match:
                 group.cancel_scope.cancel()
@@ -325,7 +320,7 @@ async def follow_matching(
 async def watch_unit(
     bus: Bus,
     name: str,
-    args: argparse.Namespace,
+    args: WatchArgs,
     outcome: WatchOutcome,
     *,
     replay: int,

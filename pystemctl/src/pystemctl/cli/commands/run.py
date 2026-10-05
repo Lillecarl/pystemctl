@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import argparse
 import os
 import shlex
 import shutil
@@ -16,6 +15,7 @@ from ... import systemd as sd
 from ...bus import Bus
 from ...errors import PystemctlError
 from ...systemd.tags import RESERVED, session_id
+from ..args import RunArgs, WatchArgs
 from ..helpers import (
     WatchOutcome,
     emit,
@@ -27,18 +27,18 @@ from ..helpers import (
 from ..output import warn
 
 
-def _caller_environment(args: argparse.Namespace) -> dict[str, str]:
+def _caller_environment(args: RunArgs) -> dict[str, str]:
     """The invoking process's environment, unless --clean was passed.
 
     Reserved tag variables never ride along: they name the job for the
     lookup commands, and an inherited value would spoof them.
     """
-    if getattr(args, "clean", False):
+    if args.clean:
         return {}
     return {key: value for key, value in os.environ.items() if key not in RESERVED}
 
 
-def _load_profile(args: argparse.Namespace) -> profiles.Profile | None:
+def _load_profile(args: RunArgs) -> profiles.Profile | None:
     if not args.profile:
         return None
     available = profiles.load_profiles()
@@ -48,7 +48,7 @@ def _load_profile(args: argparse.Namespace) -> profiles.Profile | None:
     return profiles.apply_cli_overrides(available[args.profile], args)
 
 
-async def cmd_run(bus: Bus, args: argparse.Namespace) -> int:
+async def cmd_run(bus: Bus, args: RunArgs) -> int:
     command = strip_separator(args.command)
     if not command:
         raise PystemctlError("no command given; use: pystemctl run [options] -- COMMAND [ARGS...]")
@@ -133,8 +133,10 @@ async def cmd_run(bus: Bus, args: argparse.Namespace) -> int:
         # at the end, but on stderr, so stdout holds only the command's own
         # output and stays safe to capture or pipe.
         outcome = WatchOutcome()
+        # run never watches for a pattern; the watcher gets a pattern-less view.
+        view = WatchArgs(scope=args.scope, json=args.json)
         await watch_unit(
-            bus, name, args, outcome, replay=100, stop_on_match=False, skip_notices=True
+            bus, name, view, outcome, replay=100, stop_on_match=False, skip_notices=True
         )
         props = outcome.props
     else:

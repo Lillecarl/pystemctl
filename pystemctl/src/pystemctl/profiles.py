@@ -15,11 +15,14 @@ import tomllib
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from pathlib import Path
-from typing import Any, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
 from platformdirs import site_config_dir, user_config_dir
 
 from .errors import PystemctlError
+
+if TYPE_CHECKING:
+    from .cli.args import RunArgs
 
 APP_NAME = "pystemctl"
 
@@ -188,22 +191,22 @@ def choose_collect(explicit: bool | None, tags: Sequence[str]) -> bool:
     return not tags
 
 
-def apply_cli_overrides(profile: Profile, args: Any) -> Profile:
+def apply_cli_overrides(profile: Profile, args: RunArgs) -> Profile:
     """Return *profile* with any explicitly set command-line value winning."""
     changes: dict[str, Any] = {}
-    if getattr(args, "type", None):
+    if args.type:
         changes["unit_type"] = args.type
-    if getattr(args, "description", None):
+    if args.description:
         changes["description"] = args.description
-    if getattr(args, "working_directory", None):
+    if args.working_directory:
         changes["working_directory"] = args.working_directory
         changes["working_directory_mode"] = "as-is"
-    if getattr(args, "tags", None):
+    if args.tags:
         changes["tags"] = tuple(dict.fromkeys((*profile.tags, *args.tags)))
-    if getattr(args, "slice_name", None):
+    if args.slice_name:
         changes["slice_name"] = args.slice_name
-    if getattr(args, "nice", None) is not None:
+    if args.nice is not None:
         changes["nice"] = args.nice
-    if getattr(args, "runtime_max", None) is not None:
+    if args.runtime_max is not None:
         changes["runtime_max_sec"] = args.runtime_max
     return replace(profile, **changes) if changes else profile

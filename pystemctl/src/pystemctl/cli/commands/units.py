@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 
-import argparse
 import os
 
 from ... import systemd as sd
 from ...bus import Bus
 from ...errors import UnitNotFoundError
 from ...render import format_table, format_unit_status
+from ..args import ListArgs, ListFilesArgs, StatusArgs
 from ..helpers import (
     has_journal_trace,
     resolve_units,
@@ -27,7 +27,7 @@ def _visible(unit: sd.Unit) -> bool:
     return unit.active_state != "inactive"
 
 
-async def cmd_list(bus: Bus, args: argparse.Namespace) -> int:
+async def cmd_list(bus: Bus, args: ListArgs) -> int:
     units = await sd.list_units(bus)
     if not args.all:
         units = [unit for unit in units if _visible(unit)]
@@ -51,7 +51,7 @@ async def cmd_list(bus: Bus, args: argparse.Namespace) -> int:
     return 0
 
 
-async def cmd_list_unit_files(bus: Bus, args: argparse.Namespace) -> int:
+async def cmd_list_unit_files(bus: Bus, args: ListFilesArgs) -> int:
     files = await sd.list_unit_files(bus)
     if args.type:
         suffix = args.type if args.type.startswith(".") else f".{args.type}"
@@ -68,7 +68,7 @@ async def cmd_list_unit_files(bus: Bus, args: argparse.Namespace) -> int:
     return 0
 
 
-async def cmd_status(bus: Bus, args: argparse.Namespace) -> int:
+async def cmd_status(bus: Bus, args: StatusArgs) -> int:
     exit_code = 0
     for name in await resolve_units(bus, args):
         try:

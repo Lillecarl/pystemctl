@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import argparse
 from collections.abc import Awaitable, Callable
 
 from jeepney.wrappers import DBusErrorResponse
@@ -10,29 +9,30 @@ from jeepney.wrappers import DBusErrorResponse
 from ... import systemd as sd
 from ...bus import Bus
 from ...errors import UnitNotFoundError, is_no_such_unit
+from ..args import UnitsArgs
 from ..helpers import note_foreign_session
 from ..output import emit_json, warn
 
 _Action = Callable[[Bus, str], Awaitable[str]]
 
 
-async def cmd_start(bus: Bus, args: argparse.Namespace) -> int:
+async def cmd_start(bus: Bus, args: UnitsArgs) -> int:
     return await _unit_action(bus, args, sd.start_unit)
 
 
-async def cmd_stop(bus: Bus, args: argparse.Namespace) -> int:
+async def cmd_stop(bus: Bus, args: UnitsArgs) -> int:
     return await _unit_action(bus, args, sd.stop_unit)
 
 
-async def cmd_restart(bus: Bus, args: argparse.Namespace) -> int:
+async def cmd_restart(bus: Bus, args: UnitsArgs) -> int:
     return await _unit_action(bus, args, sd.restart_unit)
 
 
-async def cmd_reload(bus: Bus, args: argparse.Namespace) -> int:
+async def cmd_reload(bus: Bus, args: UnitsArgs) -> int:
     return await _unit_action(bus, args, sd.reload_unit)
 
 
-async def _unit_action(bus: Bus, args: argparse.Namespace, action: _Action) -> int:
+async def _unit_action(bus: Bus, args: UnitsArgs, action: _Action) -> int:
     results: list[dict[str, str]] = []
     exit_code = 0
     for raw in args.units:
@@ -63,7 +63,7 @@ async def _unit_action(bus: Bus, args: argparse.Namespace, action: _Action) -> i
     return exit_code
 
 
-async def cmd_rm(bus: Bus, args: argparse.Namespace) -> int:
+async def cmd_rm(bus: Bus, args: UnitsArgs) -> int:
     removed: list[dict[str, object]] = []
     exit_code = 0
     for raw in args.units:

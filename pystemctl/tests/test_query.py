@@ -1,15 +1,15 @@
 from __future__ import annotations
 
-import argparse
 import json
 
 import pytest
 
+from pystemctl.cli.args import BaseArgs
 from pystemctl.cli.commands.query import _query_states
 
 
-def _args() -> argparse.Namespace:
-    return argparse.Namespace(json=False)
+def _args() -> BaseArgs:
+    return BaseArgs(json=False)
 
 
 def test_single_unit_prints_the_bare_state(
@@ -39,7 +39,7 @@ def test_several_units_are_named(
 def test_json_names_the_queried_state(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    args = argparse.Namespace(json=True)
+    args = BaseArgs(json=True)
     code = _query_states(args, [("a.service", "active")], expected={"active"}, exit_code=3)
     assert code == 0
     payload = json.loads(capsys.readouterr().out)
@@ -49,7 +49,7 @@ def test_json_names_the_queried_state(
 def test_json_names_file_states_for_is_enabled(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    args = argparse.Namespace(json=True)
+    args = BaseArgs(json=True)
     code = _query_states(
         args,
         [("a.service", "enabled")],

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import argparse
 import json
 import os
 from collections.abc import AsyncIterator, Sequence
@@ -12,13 +11,14 @@ from conftest import BUS
 
 from pystemctl.bus import Scope
 from pystemctl.cli import helpers
+from pystemctl.cli.args import RunArgs
 from pystemctl.cli.commands import run as run_cmd
 from pystemctl.cli.commands.run import _caller_environment
 from pystemctl.systemd.tags import RESERVED
 
 
-def _args(clean: bool = False) -> argparse.Namespace:
-    return argparse.Namespace(clean=clean)
+def _args(clean: bool = False) -> RunArgs:
+    return RunArgs(clean=clean)
 
 
 def test_caller_environment_inherits(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -39,33 +39,35 @@ def test_caller_environment_clean_is_empty() -> None:
     assert _caller_environment(_args(clean=True)) == {}
 
 
-def _run_args(**overrides: object) -> argparse.Namespace:
-    values: dict[str, object] = {
-        "command": ["echo", "hi"],
-        "shell": False,
-        "setenv": [],
-        "property": [],
-        "type": "simple",
-        "description": None,
-        "working_directory": None,
-        "tags": [],
-        "slice_name": None,
-        "nice": None,
-        "runtime_max": None,
-        "remain_after_exit": False,
-        "collect": None,
-        "profile": None,
-        "unit": "job.service",
-        "replace": False,
-        "no_block": False,
-        "wait": True,
-        "session": None,
-        "json": False,
-        "grep": None,
-        "scope": Scope.USER,
-    }
-    values.update(overrides)
-    return argparse.Namespace(**values)
+def _run_args(
+    wait: bool = True,
+    json: bool = False,
+    shell: bool = False,
+    command: Sequence[str] | None = None,
+) -> RunArgs:
+    return RunArgs(
+        command=list(command) if command is not None else ["echo", "hi"],
+        shell=shell,
+        setenv=[],
+        property=[],
+        type="simple",
+        description=None,
+        working_directory=None,
+        tags=[],
+        slice_name=None,
+        nice=None,
+        runtime_max=None,
+        remain_after_exit=False,
+        collect=None,
+        profile=None,
+        unit="job.service",
+        replace=False,
+        no_block=False,
+        wait=wait,
+        session=None,
+        json=json,
+        scope=Scope.USER,
+    )
 
 
 def _following(

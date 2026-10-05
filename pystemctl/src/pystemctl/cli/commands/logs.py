@@ -2,17 +2,16 @@
 
 from __future__ import annotations
 
-import argparse
-
 from ... import journal as jr
 from ... import systemd as sd
 from ...bus import Bus, Scope
 from ...errors import UnitNotFoundError
+from ..args import LogsArgs, MultiTargetArgs
 from ..helpers import has_journal_trace, resolve_units, tail_count, unit_groups
 from ..output import warn
 
 
-async def cmd_logs(bus: Bus, args: argparse.Namespace) -> int:
+async def cmd_logs(bus: Bus, args: LogsArgs) -> int:
     units = await resolve_units(bus, args)
     units = await _drop_unknown(bus, args, units)
     if not units:
@@ -36,7 +35,7 @@ async def cmd_logs(bus: Bus, args: argparse.Namespace) -> int:
     return 0
 
 
-async def _drop_unknown(bus: Bus, args: argparse.Namespace, units: list[str]) -> list[str]:
+async def _drop_unknown(bus: Bus, args: MultiTargetArgs, units: list[str]) -> list[str]:
     """Remove named units that never ran, failing the way ``wait`` does.
 
     Only positionals are checked: a tag already resolved to something real,
@@ -45,14 +44,13 @@ async def _drop_unknown(bus: Bus, args: argparse.Namespace, units: list[str]) ->
     journal trace is a typo, and answering it with empty output and success
     would hide that.
     """
-    explicit = {sd.normalize_unit_name(raw) for raw in getattr(args, "units", None) or []}
+    explicit = {sd.normalize_unit_name(raw) for raw in args.units}
     kept = []
     for name in units:
         if name in explicit:
             props = await sd.try_unit_properties(bus, name)
             if not props or props.get("LoadState") == "not-found":
-                scope = getattr(args, "scope", Scope.USER)
-                if await has_journal_trace(name, scope):
+                if await has_journal_trace(name, args.scope):
                     kept.append(name)
                     continue
                 warn(UnitNotFoundError(name))

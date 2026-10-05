@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import argparse
 from collections.abc import Sequence
 from pathlib import Path
 
@@ -12,11 +11,12 @@ from ... import systemd as sd
 from ...bus import MANAGER_INTERFACE, SYSTEMD_PATH, Bus
 from ...errors import PystemctlError
 from ...render import format_property_value
+from ..args import BaseArgs, ShowArgs, UnitsArgs
 from ..output import emit_json, jsonable, warn
 
 
 def _query_states(
-    args: argparse.Namespace,
+    args: BaseArgs,
     results: Sequence[tuple[str, str]],
     *,
     expected: set[str],
@@ -42,7 +42,7 @@ def _query_states(
     return exit_code if failed else 0
 
 
-async def cmd_is_active(bus: Bus, args: argparse.Namespace) -> int:
+async def cmd_is_active(bus: Bus, args: UnitsArgs) -> int:
     results: list[tuple[str, str]] = []
     for raw in args.units:
         name = sd.normalize_unit_name(raw)
@@ -50,7 +50,7 @@ async def cmd_is_active(bus: Bus, args: argparse.Namespace) -> int:
     return _query_states(args, results, expected={"active"}, exit_code=3)
 
 
-async def cmd_is_failed(bus: Bus, args: argparse.Namespace) -> int:
+async def cmd_is_failed(bus: Bus, args: UnitsArgs) -> int:
     results: list[tuple[str, str]] = []
     for raw in args.units:
         name = sd.normalize_unit_name(raw)
@@ -58,7 +58,7 @@ async def cmd_is_failed(bus: Bus, args: argparse.Namespace) -> int:
     return _query_states(args, results, expected={"failed"}, exit_code=1)
 
 
-async def cmd_is_enabled(bus: Bus, args: argparse.Namespace) -> int:
+async def cmd_is_enabled(bus: Bus, args: UnitsArgs) -> int:
     enabled_states = {"enabled", "enabled-runtime", "linked", "linked-runtime", "alias"}
     results: list[tuple[str, str]] = []
     for raw in args.units:
@@ -73,7 +73,7 @@ async def cmd_is_enabled(bus: Bus, args: argparse.Namespace) -> int:
     )
 
 
-async def cmd_enable(bus: Bus, args: argparse.Namespace) -> int:
+async def cmd_enable(bus: Bus, args: UnitsArgs) -> int:
     report: list[dict[str, object]] = []
     for raw in args.units:
         name = sd.normalize_unit_name(raw)
@@ -93,7 +93,7 @@ async def cmd_enable(bus: Bus, args: argparse.Namespace) -> int:
     return 0
 
 
-async def cmd_disable(bus: Bus, args: argparse.Namespace) -> int:
+async def cmd_disable(bus: Bus, args: UnitsArgs) -> int:
     report: list[dict[str, object]] = []
     for raw in args.units:
         name = sd.normalize_unit_name(raw)
@@ -111,7 +111,7 @@ async def cmd_disable(bus: Bus, args: argparse.Namespace) -> int:
     return 0
 
 
-async def cmd_cat(bus: Bus, args: argparse.Namespace) -> int:
+async def cmd_cat(bus: Bus, args: UnitsArgs) -> int:
     report: list[dict[str, object]] = []
     for raw in args.units:
         name = sd.normalize_unit_name(raw)
@@ -144,9 +144,9 @@ async def cmd_cat(bus: Bus, args: argparse.Namespace) -> int:
     return 0
 
 
-async def cmd_show(bus: Bus, args: argparse.Namespace) -> int:
+async def cmd_show(bus: Bus, args: ShowArgs) -> int:
     targets: list[str | None] = [sd.normalize_unit_name(unit) for unit in args.units] or [None]
-    wanted = getattr(args, "properties", None) or None
+    wanted = args.properties or None
     for target in targets:
         if target is None:
             props = await bus.get_all(SYSTEMD_PATH, MANAGER_INTERFACE)
@@ -171,7 +171,7 @@ async def cmd_show(bus: Bus, args: argparse.Namespace) -> int:
     return 0
 
 
-async def cmd_daemon_reload(bus: Bus, args: argparse.Namespace) -> int:
+async def cmd_daemon_reload(bus: Bus, args: BaseArgs) -> int:
     await sd.reload_manager(bus)
     if args.json:
         emit_json({"reloaded": True})
