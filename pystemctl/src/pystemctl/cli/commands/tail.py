@@ -69,7 +69,7 @@ async def _replay(name: str, args: argparse.Namespace, replay: int) -> None:
     async for entry in jr.entries(reader, tail=replay, skip_notices=True):
         if args.json:
             # A whole entry, so a caller gets fields the plain line drops.
-            if pattern is None or pattern.search(jr.entry_message(entry)):
+            if pattern is None or pattern.search(jr.message_text(entry)):
                 print(jr.format_entry(entry, "json"), flush=True)
             continue
         line = jr.format_entry(entry, "cat")

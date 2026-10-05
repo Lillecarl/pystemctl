@@ -9,7 +9,7 @@ import pytest
 
 from pystemctl.errors import PystemctlError
 from pystemctl.journal import parse_timestamp, priority_value, unit_match_groups
-from pystemctl.journal.reader import entries, is_manager_notice
+from pystemctl.journal.reader import entries, is_manager_notice, message_text
 
 
 @pytest.fixture
@@ -95,6 +95,20 @@ def test_manager_lifecycle_lines_are_notices(message: str) -> None:
 
 def test_bytes_messages_are_notices_too() -> None:
     assert is_manager_notice({"SYSLOG_IDENTIFIER": "systemd", "MESSAGE": b"Started job.service."})
+
+
+@pytest.mark.parametrize(
+    ("entry", "expected"),
+    [
+        ({"MESSAGE": "plain"}, "plain"),
+        ({"MESSAGE": b"bytes"}, "bytes"),
+        ({"MESSAGE": None}, ""),
+        ({}, ""),
+        ({"MESSAGE": 42}, "42"),
+    ],
+)
+def test_message_text_decodes_every_shape(entry: dict[str, object], expected: str) -> None:
+    assert message_text(entry) == expected
 
 
 @pytest.mark.parametrize(

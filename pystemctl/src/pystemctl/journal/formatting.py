@@ -9,7 +9,7 @@ import uuid
 from collections.abc import Sequence
 from typing import Any
 
-from .reader import entries, open_reader
+from .reader import entries, message_text, open_reader
 
 OUTPUT_MODES = (
     "short",
@@ -57,7 +57,7 @@ def format_entry(entry: dict[str, Any], mode: str) -> str:
     if mode == "verbose":
         return "\n".join(f"{key}={_scalar(entry[key])}" for key in sorted(entry))
     if mode == "cat":
-        return _message(entry)
+        return message_text(entry)
 
     timestamp = entry.get("__REALTIME_TIMESTAMP")
     if not isinstance(timestamp, dt.datetime):
@@ -77,19 +77,7 @@ def format_entry(entry: dict[str, Any], mode: str) -> str:
     prefix = f"{stamp} {host} {identifier}".rstrip()
     if pid:
         prefix += f"[{pid}]"
-    return f"{prefix}: {_message(entry)}"
-
-
-def entry_message(entry: dict[str, Any]) -> str:
-    """The entry's MESSAGE as text, for matching against a pattern."""
-    return _message(entry)
-
-
-def _message(entry: dict[str, Any]) -> str:
-    message = entry.get("MESSAGE")
-    if isinstance(message, bytes):
-        return message.decode("utf-8", "replace")
-    return "" if message is None else str(message)
+    return f"{prefix}: {message_text(entry)}"
 
 
 def _identifier(entry: dict[str, Any]) -> str:

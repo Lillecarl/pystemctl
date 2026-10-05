@@ -10,8 +10,8 @@ import re
 from collections.abc import AsyncIterator, Sequence
 from dataclasses import dataclass
 
-from .formatting import entry_message, format_entry
-from .reader import entries, open_reader
+from .formatting import format_entry
+from .reader import entries, message_text, open_reader
 
 
 @dataclass(slots=True)
@@ -44,6 +44,6 @@ async def follow_lines(
     async for entry in entries(
         reader, tail=since_lines or 0, follow=True, skip_notices=skip_notices
     ):
-        if compiled is not None and not compiled.search(entry_message(entry)):
+        if compiled is not None and not compiled.search(message_text(entry)):
             continue
         yield format_entry(entry, mode)

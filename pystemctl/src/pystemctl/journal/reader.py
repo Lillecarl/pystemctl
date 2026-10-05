@@ -212,11 +212,16 @@ def is_manager_notice(entry: dict[str, Any]) -> bool:
     """
     if entry.get("SYSLOG_IDENTIFIER") != "systemd":
         return False
+    return _NOTICE_PATTERN.search(message_text(entry)) is not None
+
+
+def message_text(entry: dict[str, Any]) -> str:
+    """The entry's MESSAGE as text, for display and pattern matching.
+
+    Lives here rather than in formatting because the notice detector above
+    needs it too, and formatting already imports this module.
+    """
     message = entry.get("MESSAGE")
     if isinstance(message, bytes):
-        text = message.decode("utf-8", "replace")
-    elif message is None:
-        return False
-    else:
-        text = str(message)
-    return _NOTICE_PATTERN.search(text) is not None
+        return message.decode("utf-8", "replace")
+    return "" if message is None else str(message)
