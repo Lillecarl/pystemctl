@@ -11,9 +11,13 @@ from pystemctl.systemd.jobs import Job
 from pystemctl.systemd.units import Unit
 
 
-def _unit(active_state: str = "active", sub_state: str = "running") -> Unit:
+def _unit(
+    active_state: str = "active",
+    sub_state: str = "running",
+    name: str = "job.service",
+) -> Unit:
     return Unit(
-        name="job.service",
+        name=name,
         description="a job",
         load_state="loaded",
         active_state=active_state,
@@ -26,11 +30,13 @@ def _unit(active_state: str = "active", sub_state: str = "running") -> Unit:
     )
 
 
-def _job(**props: object) -> Job:
+def _job(
+    session: str | None = None, name: str = "job.service", **props: object
+) -> Job:
     return Job(
-        unit=_unit(),
+        unit=_unit(name=name),
         tags=[],
-        session=None,
+        session=session,
         environment={},
         props=dict(props),
     )
@@ -91,6 +97,7 @@ def _cmd_args(**overrides: object) -> argparse.Namespace:
         "session": None,
         "tags": [],
         "all": True,
+        "all_transient": False,
         "follow": False,
         "json": False,
     }
@@ -121,7 +128,7 @@ def _collecting(
 def test_jobs_falls_back_to_any_session(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    seen = _collecting(monkeypatch, {None: [_job()]})
+    seen = _collecting(monkeypatch, {None: [_job(session="other")]})
     code = anyio.run(jobs_cmd.cmd_jobs, None, _cmd_args(session="s1"))
     assert code == 0
     assert seen == ["s1", None]
@@ -133,7 +140,9 @@ def test_jobs_falls_back_to_any_session(
 def test_jobs_skips_fallback_when_scoped_finds_jobs(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    seen = _collecting(monkeypatch, {"s1": [_job()], None: [_job()]})
+    seen = _collecting(
+        monkeypatch, {"s1": [_job(session="s1")], None: [_job(session="other")]}
+    )
     code = anyio.run(jobs_cmd.cmd_jobs, None, _cmd_args(session="s1"))
     assert code == 0
     assert seen == ["s1"]
@@ -153,8 +162,48 @@ def test_jobs_reports_nothing_found(
 def test_jobs_any_session_queries_once(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    seen = _collecting(monkeypatch, {None: [_job()]})
+    seen = _collecting(monkeypatch, {None: [_job(session="other")]})
     code = anyio.run(jobs_cmd.cmd_jobs, None, _cmd_args(any_session=True))
     assert code == 0
     assert seen == [None]
     capsys.readouterr()
+
+
+def test_jobs_hides_foreign_units_by_default(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    _collecting(
+        monkeypatch,
+        {"s1": [_job(session="s1", name="mine.service"), _job(name="other.service")]},
+    )
+    code = anyio.run(jobs_cmd.cmd_jobs, None, _cmd_args(session="s1"))
+    assert code == 0
+    out = capsys.readouterr().out
+    assert "mine.service" in out
+    assert "other.service" not in out
+
+
+def test_jobs_all_transient_shows_everything(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    _collecting(
+        monkeypatch,
+        {"s1": [_job(session="s1", name="mine.service"), _job(name="other.service")]},
+    )
+    code = anyio.run(jobs_cmd.cmd_jobs, None, _cmd_args(session="s1", all_transient=True))
+    assert code == 0
+    out = capsys.readouterr().out
+    assert "mine.service" in out
+    assert "other.service" in out
+
+
+def test_jobs_names_hidden_foreign_units(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    _collecting(monkeypatch, {"s1": [_job(name="other.service")]})
+    code = anyio.run(jobs_cmd.cmd_jobs, None, _cmd_args(session="s1"))
+    assert code == 1
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert "hiding 1 transient unit" in captured.err
+    assert "--all-transient" in captured.err

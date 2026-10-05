@@ -34,15 +34,22 @@ async def cmd_jobs(bus: Bus, args: argparse.Namespace) -> int:
         )
 
     if args.follow:
-        return await _follow(lambda: snapshot(session), args)
+        async def visible() -> list[Job]:
+            jobs, _hidden = _visible(await snapshot(session), args)
+            return jobs
 
-    jobs = await snapshot(session)
+        return await _follow(visible, args)
+
+    foreign = 0
+    jobs, hidden = _visible(await snapshot(session), args)
+    foreign += hidden
     if not jobs and session is not None:
         # A job started from another session — a shell, or an earlier agent
         # session — filters out of the scoped answer. Retry unscoped rather
         # than report nothing, the way resolve() already does when it targets
         # a unit by tag.
-        jobs = await snapshot(None)
+        jobs, hidden = _visible(await snapshot(None), args)
+        foreign += hidden
         if jobs:
             print(
                 "pystemctl: no jobs in this session; showing jobs from every session",
@@ -54,10 +61,31 @@ async def cmd_jobs(bus: Bus, args: argparse.Namespace) -> int:
         return 0
 
     if not jobs:
+        if foreign:
+            units = "unit" if foreign == 1 else "units"
+            print(
+                f"pystemctl: hiding {foreign} transient {units} that are not "
+                "pystemctl jobs (--all-transient shows them)",
+                file=sys.stderr,
+            )
         return 1
 
     print(_table(jobs))
     return 0
+
+
+def _visible(found: list[Job], args: argparse.Namespace) -> tuple[list[Job], int]:
+    """Keep pystemctl's own jobs, counting the foreign units left out.
+
+    Every unit pystemctl starts carries its session in the environment, so a
+    unit without one belongs to something else: init.scope, run-*.scope,
+    another tool's transient units. Those drown the list, hence they stay
+    hidden unless --all-transient is passed.
+    """
+    if getattr(args, "all_transient", False):
+        return found, 0
+    marked = [job for job in found if job.session is not None]
+    return marked, len(found) - len(marked)
 
 
 async def _follow(snapshot: Snapshot, args: argparse.Namespace) -> int:
