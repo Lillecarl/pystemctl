@@ -31,6 +31,9 @@ def _query_states(
     failed = any(state not in expected for _name, state in results)
     if args.json:
         print(json.dumps([{"unit": name, "state": state} for name, state in results]))
+    elif len(results) > 1:
+        for name, state in results:
+            print(f"{name}: {state}")
     else:
         for _name, state in results:
             print(state)
