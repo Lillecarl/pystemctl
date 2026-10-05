@@ -125,7 +125,9 @@ def test_jobs_falls_back_to_any_session(
     code = anyio.run(jobs_cmd.cmd_jobs, None, _cmd_args(session="s1"))
     assert code == 0
     assert seen == ["s1", None]
-    assert "job.service" in capsys.readouterr().out
+    captured = capsys.readouterr()
+    assert "job.service" in captured.out
+    assert "every session" in captured.err
 
 
 def test_jobs_skips_fallback_when_scoped_finds_jobs(
@@ -135,7 +137,7 @@ def test_jobs_skips_fallback_when_scoped_finds_jobs(
     code = anyio.run(jobs_cmd.cmd_jobs, None, _cmd_args(session="s1"))
     assert code == 0
     assert seen == ["s1"]
-    capsys.readouterr()
+    assert capsys.readouterr().err == ""
 
 
 def test_jobs_reports_nothing_found(

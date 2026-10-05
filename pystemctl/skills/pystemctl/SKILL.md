@@ -82,8 +82,9 @@ pystemctl logs pystemctl-build-xxxx.service -n 100
 
 Sessions: `run` stamps the invoking agent session on the job. `jobs` lists
 that session by default and falls back to every session when the scoped
-answer is empty. `--any-session` skips the filter; `--session ID` selects
-one. `wait` / `tail` by tag resolve across sessions, newest match wins.
+answer is empty, saying so on stderr. `--any-session` skips the filter;
+`--session ID` selects one. `wait` / `tail` by tag resolve across sessions,
+newest match wins.
 
 ```sh
 pystemctl jobs --tag deploy --any-session

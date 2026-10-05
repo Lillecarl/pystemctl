@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import datetime as dt
 import json
+import sys
 from collections.abc import Awaitable, Callable
 
 import anyio
@@ -42,6 +43,11 @@ async def cmd_jobs(bus: Bus, args: argparse.Namespace) -> int:
         # than report nothing, the way resolve() already does when it targets
         # a unit by tag.
         jobs = await snapshot(None)
+        if jobs:
+            print(
+                "pystemctl: no jobs in this session; showing jobs from every session",
+                file=sys.stderr,
+            )
 
     if args.json:
         print(json.dumps([_job_payload(job) for job in jobs]))

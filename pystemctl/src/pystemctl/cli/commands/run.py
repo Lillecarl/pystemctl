@@ -139,8 +139,7 @@ async def cmd_run(bus: Bus, args: argparse.Namespace) -> int:
         return 1
     if not args.wait:
         return 0
-    if args.json:
-        emit(args, None, payload)
+    emit(args, name, payload)
     if props.get("Result") == "exit-code":
         status = props.get("ExecMainStatus")
         return status if isinstance(status, int) and status else 1
