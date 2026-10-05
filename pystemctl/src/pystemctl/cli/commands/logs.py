@@ -26,6 +26,7 @@ async def cmd_logs(bus: Bus, args: argparse.Namespace) -> int:
         priority=priority,
         boot=args.boot,
         mode="json" if args.json else args.output,
+        skip_notices=not args.json,
     )
     return 0
 
@@ -40,6 +41,6 @@ async def journal_tail(unit: str, lines: int, scope: Scope) -> list[str]:
     system_units, user_units = unit_groups([unit], scope)
     reader = jr.open_reader(system_units=system_units, user_units=user_units)
     result: list[str] = []
-    async for entry in jr.entries(reader, tail=lines):
+    async for entry in jr.entries(reader, tail=lines, skip_notices=True):
         result.append(jr.format_entry(entry, "short"))
     return result

@@ -52,7 +52,7 @@ async def _replay(name: str, args: argparse.Namespace, replay: int) -> None:
     system_units, user_units = unit_groups([name], args.scope)
     pattern = re.compile(args.grep) if args.grep else None
     reader = jr.open_reader(system_units=system_units, user_units=user_units)
-    async for entry in jr.entries(reader, tail=replay):
+    async for entry in jr.entries(reader, tail=replay, skip_notices=True):
         if args.json:
             # A whole entry, so a caller gets fields the plain line drops.
             if pattern is None or pattern.search(jr.entry_message(entry)):

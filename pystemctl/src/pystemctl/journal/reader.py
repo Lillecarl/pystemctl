@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import datetime as dt
 import os
+import re
 from collections.abc import AsyncIterator, Sequence
 from typing import TYPE_CHECKING, Any
 
@@ -124,6 +125,7 @@ async def entries(
     until: dt.datetime | None = None,
     tail: int | None = None,
     follow: bool = False,
+    skip_notices: bool = False,
 ) -> AsyncIterator[dict[str, Any]]:
     # The cursor of the last entry read, so following can resume exactly where
     # the replay stopped. Seeking to the tail again would drop every entry
@@ -133,10 +135,12 @@ async def entries(
     if tail is not None:
         await anyio.to_thread.run_sync(reader.seek_tail)
         buffered: list[dict[str, Any]] = []
-        for _ in range(tail):
+        while len(buffered) < tail:
             entry = await anyio.to_thread.run_sync(reader.get_previous)
             if not entry:
                 break
+            if skip_notices and is_manager_notice(entry):
+                continue
             buffered.append(entry)
         for entry in reversed(buffered):
             if until is not None and entry["__REALTIME_TIMESTAMP"] > until:
@@ -152,9 +156,11 @@ async def entries(
             entry = await anyio.to_thread.run_sync(reader.get_next)
             if not entry:
                 break
+            cursor = entry.get("__CURSOR", cursor)
             if until is not None and entry["__REALTIME_TIMESTAMP"] > until:
                 return
-            cursor = entry.get("__CURSOR", cursor)
+            if skip_notices and is_manager_notice(entry):
+                continue
             yield entry
         if not follow:
             return
@@ -178,4 +184,34 @@ async def entries(
             entry = await anyio.to_thread.run_sync(reader.get_next)
             if not entry:
                 break
+            if skip_notices and is_manager_notice(entry):
+                continue
             yield entry
+
+
+_NOTICE_PATTERN = re.compile(
+    r"^(Starting|Started|Stopping|Stopped|Finished|Reloading|Reloaded)\b"
+    r"|: Consumed .* CPU time"
+    r"|^Main processes terminated with"
+)
+
+
+def is_manager_notice(entry: dict[str, Any]) -> bool:
+    """Whether the entry is the manager narrating a unit's lifecycle.
+
+    Started/stopped/finished lines and resource accounting come from PID 1
+    under the systemd identifier. A unit's own output never carries that
+    identifier unless it deliberately sets it, so gating on both keeps real
+    output safe. pystemctl shows the program's output; pyjournalctl shows
+    everything.
+    """
+    if entry.get("SYSLOG_IDENTIFIER") != "systemd":
+        return False
+    message = entry.get("MESSAGE")
+    if isinstance(message, bytes):
+        text = message.decode("utf-8", "replace")
+    elif message is None:
+        return False
+    else:
+        text = str(message)
+    return _NOTICE_PATTERN.search(text) is not None

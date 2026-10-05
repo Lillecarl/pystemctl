@@ -31,6 +31,7 @@ async def follow_lines(
     pattern: str | None = None,
     mode: str = "cat",
     since_lines: int | None = None,
+    skip_notices: bool = True,
 ) -> AsyncIterator[str]:
     """Yield formatted lines from the matched units as they arrive.
 
@@ -42,7 +43,8 @@ async def follow_lines(
     """
     compiled = re.compile(pattern) if pattern else None
     reader = open_reader(system_units=system_units, user_units=user_units)
-    async for entry in entries(reader, tail=since_lines or 0, follow=True):
+    async for entry in entries(reader, tail=since_lines or 0, follow=True,
+                               skip_notices=skip_notices):
         if compiled is not None and not compiled.search(entry_message(entry)):
             continue
         yield format_entry(entry, mode)

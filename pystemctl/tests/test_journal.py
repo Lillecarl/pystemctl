@@ -1,11 +1,15 @@
 from __future__ import annotations
 
 import datetime as dt
+from functools import partial
+from typing import Any
 
+import anyio
 import pytest
 
 from pystemctl.errors import PystemctlError
 from pystemctl.journal import parse_timestamp, priority_value, unit_match_groups
+from pystemctl.journal.reader import entries, is_manager_notice
 
 
 @pytest.fixture
@@ -71,3 +75,74 @@ def test_system_unit_match_groups() -> None:
         [("_SYSTEMD_CGROUP", "/init.scope"), ("UNIT", "bar.service")],
         [("_UID", "0"), ("OBJECT_SYSTEMD_UNIT", "bar.service")],
     ]
+
+
+@pytest.mark.parametrize(
+    "message",
+    [
+        "Started job.service.",
+        "Starting mbsync mailbox synchronization...",
+        "Stopped job.service.",
+        "Finished mbsync mailbox synchronization.",
+        "Reloaded job.service.",
+        "job.service: Consumed 17.443s CPU time over 2min wall clock time.",
+        "Main processes terminated with: code=exited, status=0/SUCCESS",
+    ],
+)
+def test_manager_lifecycle_lines_are_notices(message: str) -> None:
+    assert is_manager_notice({"SYSLOG_IDENTIFIER": "systemd", "MESSAGE": message})
+
+
+def test_bytes_messages_are_notices_too() -> None:
+    assert is_manager_notice(
+        {"SYSLOG_IDENTIFIER": "systemd", "MESSAGE": b"Started job.service."}
+    )
+
+
+@pytest.mark.parametrize(
+    "entry",
+    [
+        {"SYSLOG_IDENTIFIER": "echo", "MESSAGE": "Started the day well"},
+        {"SYSLOG_IDENTIFIER": "systemd", "MESSAGE": "all systems nominal"},
+        {"MESSAGE": "Started job.service."},
+        {"SYSLOG_IDENTIFIER": "systemd"},
+    ],
+)
+def test_output_lines_are_not_notices(entry: dict[str, object]) -> None:
+    assert not is_manager_notice(entry)
+
+
+class _TailedReader:
+    """A fixed log read backwards, like seek_tail plus get_previous."""
+
+    def __init__(self, log: list[dict[str, Any]]) -> None:
+        self.log = log
+
+    def seek_tail(self) -> None:
+        pass
+
+    def get_previous(self) -> dict[str, Any] | None:
+        return self.log.pop() if self.log else None
+
+
+async def _collect(reader: _TailedReader, **kwargs: Any) -> list[str]:
+    return [
+        str(entry["MESSAGE"])
+        async for entry in entries(reader, tail=10, **kwargs)
+    ]
+
+
+def test_tailed_entries_skip_notices_on_request() -> None:
+    log: list[dict[str, Any]] = [
+        {"SYSLOG_IDENTIFIER": "systemd", "MESSAGE": "Started job.service."},
+        {"SYSLOG_IDENTIFIER": "echo", "MESSAGE": "hello"},
+        {"SYSLOG_IDENTIFIER": "systemd", "MESSAGE": "Stopped job.service."},
+    ]
+    assert anyio.run(partial(_collect, _TailedReader(list(log)))) == [
+        "Started job.service.",
+        "hello",
+        "Stopped job.service.",
+    ]
+    assert anyio.run(
+        partial(_collect, _TailedReader(list(log)), skip_notices=True)
+    ) == ["hello"]

@@ -34,11 +34,15 @@ async def print_entries(
     priority: int | None = None,
     boot: str | bool | None = None,
     mode: str = "short",
+    skip_notices: bool = False,
 ) -> None:
     reader = open_reader(
         system_units=system_units, user_units=user_units, priority=priority, boot=boot
     )
-    async for entry in entries(reader, since=since, until=until, tail=tail, follow=follow):
+    async for entry in entries(
+        reader, since=since, until=until, tail=tail, follow=follow,
+        skip_notices=skip_notices,
+    ):
         print(format_entry(entry, mode), flush=True)
 
 

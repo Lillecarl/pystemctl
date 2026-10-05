@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from .follow import Followed, follow_lines
 from .formatting import OUTPUT_MODES, entry_message, format_entry, print_entries
-from .reader import entries, newest_unit_for_tags, open_reader, unit_match_groups
+from .reader import entries, is_manager_notice, newest_unit_for_tags, open_reader, unit_match_groups
 from .timestamps import PRIORITY_NAMES, parse_timestamp, priority_value
 
 __all__ = [
@@ -15,6 +15,7 @@ __all__ = [
     "entry_message",
     "follow_lines",
     "format_entry",
+    "is_manager_notice",
     "newest_unit_for_tags",
     "open_reader",
     "parse_timestamp",
