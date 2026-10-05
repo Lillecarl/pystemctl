@@ -88,7 +88,6 @@ async def cmd_run(bus: Bus, args: RunArgs) -> int:
         nice = nice if nice is not None else profile.nice
         runtime_max = runtime_max if runtime_max is not None else profile.runtime_max_sec
         remain_after_exit = remain_after_exit or profile.remain_after_exit
-        unit_type = unit_type or profile.unit_type
         if collect is None:
             collect = profile.collect
 
