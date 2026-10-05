@@ -147,8 +147,9 @@ async def cmd_run(bus: Bus, args: argparse.Namespace) -> int:
     job_state = None if args.no_block else await sd.wait_job(bus, job)
 
     if args.wait and not args.json:
-        # Text mode shows the output as it happens; the unit name and the
-        # exit status still come at the end, so scripts keep their contract.
+        # Text mode shows the output as it happens; the unit name still comes
+        # at the end, but on stderr, so stdout holds only the command's own
+        # output and stays safe to capture or pipe.
         outcome = WatchOutcome()
         async with anyio.create_task_group() as group:
             group.start_soon(_stream, name, args, group)
@@ -185,7 +186,10 @@ async def cmd_run(bus: Bus, args: argparse.Namespace) -> int:
                 file=sys.stderr,
             )
         return 0
-    emit(args, name, payload)
+    if args.json:
+        emit(args, name, payload)
+    else:
+        print(name, file=sys.stderr)
     if props.get("Result") == "exit-code":
         status = props.get("ExecMainStatus")
         return status if isinstance(status, int) and status else 1

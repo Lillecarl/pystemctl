@@ -7,7 +7,7 @@ import anyio
 import pytest
 
 from pystemctl.cli.commands import wait as wait_cmd
-from pystemctl.cli.commands.wait import _report
+from pystemctl.cli.commands.wait import _report, _report_timeout
 from pystemctl.cli.helpers import WatchOutcome
 
 
@@ -38,6 +38,44 @@ def test_report_no_result_reads_as_success() -> None:
     # A collected unit's properties are empty; there is nothing to report but
     # a clean exit, so that is what it says.
     assert _report(_args(), "x.service", WatchOutcome(props={})) == 0
+
+
+def test_report_timeout_names_the_timeout(capsys: pytest.CaptureFixture[str]) -> None:
+    args = argparse.Namespace(json=False, timeout=3)
+    code = _report_timeout(args, "x.service", WatchOutcome(props={}))
+    assert code == 124
+    assert "timed out after 3s" in capsys.readouterr().err
+
+
+def test_report_timeout_json_marks_the_giveup(capsys: pytest.CaptureFixture[str]) -> None:
+    args = argparse.Namespace(json=True, timeout=2.5)
+    code = _report_timeout(args, "x.service", WatchOutcome(props={}))
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["timed_out"] is True
+    assert payload["timeout"] == 2.5
+    assert payload["exit_code"] == 124
+    assert code == 124
+
+
+def test_cmd_wait_timeout_is_not_success(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A wait that outlives its --timeout must not read as success."""
+
+    async def resolve(bus: object, args: object) -> tuple[str, dict[str, object]]:
+        return "x.service", {}
+
+    async def slow(bus: object, name: str) -> dict[str, object]:
+        await anyio.sleep(30)
+        return {}
+
+    monkeypatch.setattr(wait_cmd, "resolve_existing", resolve)
+    monkeypatch.setattr(wait_cmd.sd, "wait_until_finished", slow)
+    monkeypatch.setattr(wait_cmd.sd, "try_unit_properties", slow)
+    args = argparse.Namespace(timeout=0.05, grep=None, json=False)
+    code = anyio.run(wait_cmd.cmd_wait, None, args)
+    assert code == 124
+    assert "timed out" in capsys.readouterr().err
 
 
 def test_report_json_carries_the_exit_code(capsys: pytest.CaptureFixture[str]) -> None:

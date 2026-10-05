@@ -17,6 +17,7 @@ from .. import systemd as sd
 from ..bus import Bus, Scope
 from ..errors import PystemctlError
 from ..systemd import Unit
+from ..systemd.tags import SESSION_ENV, session_id
 
 
 async def _collected_fallback(
@@ -109,11 +110,19 @@ async def resolve_existing(bus: Bus, args: argparse.Namespace) -> tuple[str, dic
     """Resolve a target and read its properties, failing if it is not loaded.
 
     Returns the unit name and its property map, so a caller does not fetch the
-    same properties twice.
+    same properties twice. A unit the journal remembers finished and was
+    collected by the manager, which unloads successful transient units almost
+    at once; saying only "not found" would hide that its output is still
+    readable.
     """
     name = await resolve_target(bus, args)
     props = await sd.try_unit_properties(bus, name)
     if not props or props.get("LoadState") == "not-found":
+        if await has_journal_trace(name, getattr(args, "scope", Scope.USER)):
+            raise PystemctlError(
+                f"Unit {name} already finished and was collected; "
+                f"see pystemctl logs {name}"
+            )
         raise PystemctlError(f"Unit {name} not found.")
     return name, props
 
@@ -230,6 +239,59 @@ def unit_groups(units: Sequence[str], scope: Scope) -> tuple[list[str], list[str
     if scope is Scope.SYSTEM:
         return list(units), []
     return [], list(units)
+
+
+async def has_journal_trace(name: str, scope: Scope) -> bool:
+    """True when the journal holds any line for a unit, notices included.
+
+    A collected unit leaves its log lines behind, while a name that never ran
+    leaves nothing. One entry decides, so this stays cheap enough for an
+    error path.
+    """
+    system_units, user_units = unit_groups([name], scope)
+    reader = jr.open_reader(system_units=system_units, user_units=user_units)
+    async for _entry in jr.entries(reader, tail=1, skip_notices=False):
+        return True
+    return False
+
+
+def unit_session(props: dict[str, Any]) -> str | None:
+    """The agent session a unit was started from, if it recorded one."""
+    environment = props.get("Environment") or []
+    for item in environment:
+        key, separator, value = item.partition("=")
+        if separator and key == SESSION_ENV and value:
+            return value
+    return None
+
+
+def note_foreign_session(name: str, props: dict[str, Any]) -> None:
+    """Name the owning session when acting on another session's unit.
+
+    Sessions attribute work, and a destructive command that crosses that line
+    silently is how someone else's job gets stopped by mistake. One stderr
+    line, no change to stdout, JSON, or the exit code.
+    """
+    session = unit_session(props)
+    if session is not None and session != session_id():
+        print(
+            f"pystemctl: {name} belongs to session {session}; acting anyway",
+            file=sys.stderr,
+        )
+
+
+def timeout_note(args: argparse.Namespace, name: str) -> None:
+    """Say a bounded wait gave up, so silence never reads as success."""
+    print(
+        f"pystemctl: timed out after {args.timeout:g}s waiting for {name}",
+        file=sys.stderr,
+    )
+
+
+#: Exit code when a bounded wait gives up. The unit's own exit is unknown, so
+#: this must differ from both success (0) and the unit's failure codes; it
+#: matches ``timeout(1)``.
+TIMEOUT_EXIT_CODE = 124
 
 
 def exit_code_from(props: dict[str, Any]) -> int:

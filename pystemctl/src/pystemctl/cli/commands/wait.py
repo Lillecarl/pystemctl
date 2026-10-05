@@ -11,12 +11,14 @@ import anyio
 from ... import systemd as sd
 from ...bus import Bus
 from ..helpers import (
+    TIMEOUT_EXIT_CODE,
     NoTimeout,
     WatchOutcome,
     exit_code_from,
     follow_matching,
     jsonable,
     resolve_existing,
+    timeout_note,
 )
 
 DEFAULT_REPLAY = 200
@@ -37,6 +39,10 @@ async def cmd_wait(bus: Bus, args: argparse.Namespace) -> int:
         else:
             outcome.props = await sd.wait_until_finished(bus, name)
 
+    if outcome.matched:
+        return _report(args, name, outcome)
+    if args.timeout is not None and getattr(scope, "cancelled_caught", False):
+        return _report_timeout(args, name, outcome)
     if not outcome.props:
         outcome.props = await sd.try_unit_properties(bus, name)
     return _report(args, name, outcome)
@@ -82,3 +88,28 @@ def _report(args: argparse.Namespace, name: str, outcome: WatchOutcome) -> int:
         print(f"pystemctl: {name}: pattern matched", file=sys.stderr)
 
     return code
+
+
+def _report_timeout(args: argparse.Namespace, name: str, outcome: WatchOutcome) -> int:
+    """Report a wait that outlived its --timeout.
+
+    The still-running unit keeps running; only the watching stops. Silence
+    here would read as success, so this always names the timeout on stderr
+    and exits 124, the way ``timeout(1)`` does.
+    """
+    payload = {
+        "unit": name,
+        "active_state": outcome.props.get("ActiveState"),
+        "result": outcome.props.get("Result"),
+        "status": outcome.props.get("ExecMainStatus"),
+        "matched": False,
+        "timed_out": True,
+        "timeout": args.timeout,
+        "exit_code": TIMEOUT_EXIT_CODE,
+    }
+
+    if args.json:
+        print(json.dumps(jsonable(payload)))
+    else:
+        timeout_note(args, name)
+    return TIMEOUT_EXIT_CODE

@@ -12,11 +12,13 @@ from ... import journal as jr
 from ... import systemd as sd
 from ...bus import Bus
 from ..helpers import (
+    TIMEOUT_EXIT_CODE,
     NoTimeout,
     WatchOutcome,
     exit_code_from,
     follow_matching,
     resolve_existing,
+    timeout_note,
     unit_groups,
 )
 
@@ -43,6 +45,18 @@ async def cmd_tail(bus: Bus, args: argparse.Namespace) -> int:
             group.start_soon(_stream, name, args, outcome, replay, group)
             if not sd.unit_finished(props):
                 group.start_soon(_watch, bus, name, outcome, group)
+
+    if args.timeout is not None and getattr(scope, "cancelled_caught", False):
+        # A bounded follow that runs out of time did not fail, but it did not
+        # see the end either. The note always fires; the code follows the
+        # mode: --until-exit promises an outcome, --grep promises a match,
+        # and a plain follow already printed what arrived.
+        timeout_note(args, name)
+        if args.until_exit:
+            return TIMEOUT_EXIT_CODE
+        if args.grep and not outcome.matched:
+            return 1
+        return 0
 
     return _report(args, name, outcome)
 

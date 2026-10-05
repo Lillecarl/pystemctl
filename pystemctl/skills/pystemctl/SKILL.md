@@ -47,8 +47,8 @@ Collect rule: explicit `--collect` / `--no-collect` wins. Otherwise a tagged
 job is kept (so its exit status stays readable) and an untagged job is
 collected once it stops.
 
-`--wait` streams the command's output in text mode, then prints the unit
-name; `--json` keeps a single payload at the end.
+`--wait` streams the command's output to stdout in text mode, then prints
+the unit name to stderr; `--json` keeps a single payload on stdout.
 
 ## Unit lifecycle and inspection
 
@@ -80,7 +80,7 @@ The long-run loop: start tagged, wait in bounded chunks, then read the logs.
 
 ```sh
 pystemctl run --tag deploy -- ./build.sh   # prints pystemctl-build-xxxx.service
-pystemctl wait --tag deploy --timeout 300  # repeat until the unit stops
+pystemctl wait --tag deploy --timeout 300  # 0 done, 124 still running, else the unit's exit
 pystemctl jobs --tag deploy                # same agent session
 pystemctl logs --tag deploy -n 100        # unit name not needed
 ```
@@ -164,7 +164,11 @@ resolves it at completion time.
   run secrets through env there unless every local user may read them.
 - A collected unit loses its exit status. Keep `--no-collect` or a `--tag`
   when a later `wait` needs the result; `logs --tag` still reads a
-  collected job's output from the journal.
+  collected job's output from the journal. Even so, the manager unloads a
+  successful unit within about a second, so `wait` promptly or use `--wait`.
+- `stop` / `rm` name the owning session on stderr when the unit is another
+  session's; `logs` fails on a name that never ran instead of printing
+  nothing, and `status` says "could not be found" for those.
 - Prefer `--json` plus `show -P` when scripting over `status` text.
 - Shell completion (bash, zsh, fish) completes subcommands, unit names
   and files, tags, sessions, slices, env keys, priorities, and property

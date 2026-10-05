@@ -10,7 +10,8 @@ from collections.abc import Awaitable, Callable
 from jeepney.wrappers import DBusErrorResponse
 
 from ... import systemd as sd
-from ...bus import Bus
+from ...bus import Bus, Scope
+from ..helpers import has_journal_trace, note_foreign_session
 
 _Action = Callable[[Bus, str], Awaitable[str]]
 
@@ -36,12 +37,19 @@ async def _unit_action(bus: Bus, args: argparse.Namespace, action: _Action) -> i
     exit_code = 0
     for raw in args.units:
         name = sd.normalize_unit_name(raw)
+        props = await sd.try_unit_properties(bus, name)
+        if not args.json:
+            note_foreign_session(name, props)
         try:
             job = await action(bus, name)
         except DBusErrorResponse as error:
-            results.append({"unit": name, "job_state": "failed", "error": str(error)})
+            if "NoSuchUnit" in (error.name or ""):
+                message = f"Unit {name} not found."
+            else:
+                message = f"{name}: {error}"
+            results.append({"unit": name, "job_state": "failed", "error": message})
             if not args.json:
-                print(f"pystemctl: {name}: {error}", file=sys.stderr)
+                print(f"pystemctl: {message}", file=sys.stderr)
             exit_code = 1
             continue
         state = await sd.wait_job(bus, job)
@@ -56,17 +64,35 @@ async def _unit_action(bus: Bus, args: argparse.Namespace, action: _Action) -> i
 
 
 async def cmd_rm(bus: Bus, args: argparse.Namespace) -> int:
-    removed: list[str] = []
+    removed: list[dict[str, object]] = []
+    exit_code = 0
     for raw in args.units:
         name = sd.normalize_unit_name(raw)
         props = await sd.try_unit_properties(bus, name)
-        if props and props.get("ActiveState") not in {"inactive", None}:
+        if not props or props.get("LoadState") == "not-found":
+            # Forgetting what is already forgotten is done, not an error --
+            # but only when the journal proves it ran. A bare name with no
+            # trace is a typo, and answering that with success would hide it.
+            if await has_journal_trace(name, getattr(args, "scope", Scope.USER)):
+                removed.append({"unit": name, "removed": True})
+                if not args.json:
+                    print(f"pystemctl: {name} already finished and was collected.")
+                continue
+            message = f"Unit {name} not found."
+            removed.append({"unit": name, "removed": False, "error": message})
+            if not args.json:
+                print(f"pystemctl: {message}", file=sys.stderr)
+            exit_code = 1
+            continue
+        if not args.json:
+            note_foreign_session(name, props)
+        if props.get("ActiveState") not in {"inactive", None}:
             job = await sd.stop_unit(bus, name)
             await sd.wait_job(bus, job)
         await sd.reset_failed_unit(bus, name)
-        removed.append(name)
+        removed.append({"unit": name, "removed": True})
         if not args.json:
             print(f"Removed {name}.")
     if args.json:
-        print(json.dumps([{"unit": name, "removed": True} for name in removed]))
-    return 0
+        print(json.dumps(removed))
+    return exit_code

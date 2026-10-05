@@ -451,7 +451,7 @@ def build_parser() -> argparse.ArgumentParser:
         "tail",
         commands.cmd_tail,
         "follow a unit's output until it stops or a line matches "
-        "(wait only reports the outcome; logs reads past lines)",
+        "(wait reports the outcome, logs reads past lines)",
         option_groups=[
             _replay_option(200),
             _watch_options(),
@@ -552,7 +552,12 @@ def _replay_option(default: int | None = None) -> argparse.ArgumentParser:
 def _watch_options() -> argparse.ArgumentParser:
     """The timeout and pattern that turn a log reader into a watcher."""
     parser = argparse.ArgumentParser(add_help=False)
-    parser.add_argument("--timeout", type=float, metavar="SECONDS")
+    parser.add_argument(
+        "--timeout",
+        type=float,
+        metavar="SECONDS",
+        help="give up after SECONDS (waiting for the outcome exits 124)",
+    )
     parser.add_argument(
         "--grep", metavar="PATTERN", help="select matching lines; return early on a match"
     )

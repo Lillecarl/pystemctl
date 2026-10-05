@@ -134,7 +134,10 @@ def test_wait_streams_output_before_the_unit_name(
     _finishing(monkeypatch)
     _following(monkeypatch, ["hello"])
     assert anyio.run(run_cmd.cmd_run, None, _run_args()) == 0
-    assert capsys.readouterr().out.splitlines() == ["hello", "job.service"]
+    captured = capsys.readouterr()
+    # The command's output owns stdout; the unit name rides on stderr.
+    assert captured.out.splitlines() == ["hello"]
+    assert "job.service" in captured.err.splitlines()
 
 
 def test_detached_run_hints_at_logs_and_wait(

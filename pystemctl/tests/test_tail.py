@@ -102,3 +102,58 @@ def test_follow_matching_skips_notices_by_default(
     anyio.run(watch)
     assert seen["skip_notices"] is True
     capsys.readouterr()
+
+
+def _stall_tail(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Resolve a running unit, then never observe anything more."""
+
+    async def resolve(bus: object, args: object) -> tuple[str, dict[str, object]]:
+        return "x.service", {"ActiveState": "active", "SubState": "running"}
+
+    async def slow(*args: object, **kwargs: object) -> None:
+        await anyio.sleep(30)
+
+    monkeypatch.setattr(tail_cmd, "resolve_existing", resolve)
+    monkeypatch.setattr(tail_cmd, "_stream", slow)
+    monkeypatch.setattr(tail_cmd, "_watch", slow)
+
+
+def _tail_args(**overrides: object) -> argparse.Namespace:
+    values: dict[str, object] = {
+        "lines": None,
+        "follow": True,
+        "until_exit": False,
+        "grep": None,
+        "timeout": 0.05,
+        "json": False,
+    }
+    values.update(overrides)
+    return argparse.Namespace(**values)
+
+
+def test_tail_until_exit_timeout_is_not_success(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    _stall_tail(monkeypatch)
+    code = anyio.run(tail_cmd.cmd_tail, None, _tail_args(until_exit=True))
+    assert code == 124
+    assert "timed out" in capsys.readouterr().err
+
+
+def test_tail_grep_timeout_reports_no_match(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    _stall_tail(monkeypatch)
+    code = anyio.run(tail_cmd.cmd_tail, None, _tail_args(grep="READY"))
+    assert code == 1
+    assert "timed out" in capsys.readouterr().err
+
+
+def test_tail_plain_follow_timeout_stays_quiet(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    # A bounded plain follow printed what arrived; stopping there is the job.
+    _stall_tail(monkeypatch)
+    code = anyio.run(tail_cmd.cmd_tail, None, _tail_args())
+    assert code == 0
+    assert "timed out" in capsys.readouterr().err

@@ -10,7 +10,13 @@ from ... import systemd as sd
 from ...bus import Bus
 from ...errors import UnitNotFound
 from ...render import format_table, format_unit_status
-from ..helpers import jsonable, resolve_units, unit_payload, unit_payload_from_props
+from ..helpers import (
+    has_journal_trace,
+    jsonable,
+    resolve_units,
+    unit_payload,
+    unit_payload_from_props,
+)
 from .logs import journal_tail
 
 
@@ -74,12 +80,19 @@ async def cmd_status(bus: Bus, args: argparse.Namespace) -> int:
             continue
 
         if props.get("LoadState") == "not-found":
-            exit_code = max(exit_code, 3)
+            # Not loaded covers two cases: a job that finished and was
+            # collected, and a name that never ran at all. Only the first
+            # one finished anything; the journal tells them apart.
+            trace = await has_journal_trace(name, args.scope)
+            exit_code = max(exit_code, 3 if trace else 4)
             if args.json:
                 payload = unit_payload_from_props(name, props)
                 if not args.no_journal:
                     payload["journal"] = await journal_tail(name, args.lines, args.scope)
                 print(json.dumps(payload, default=str, ensure_ascii=False))
+                continue
+            if not trace:
+                print(f"Unit {name} could not be found.")
                 continue
             print(f"- {name}")
             print("  Collected: finished and unloaded; the result is gone, its logs follow.")
