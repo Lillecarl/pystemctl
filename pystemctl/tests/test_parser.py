@@ -176,6 +176,35 @@ def test_unknown_flag_is_rejected(parser: argparse.ArgumentParser) -> None:
         _parse(parser, ["list", "--definitely-not-a-flag"])
 
 
+def test_help_groups_job_commands(parser: argparse.ArgumentParser) -> None:
+    assert parser.epilog is not None
+    assert "ephemeral jobs: run, jobs, wait, tail" in parser.epilog
+    assert "unit control:" in parser.epilog
+
+
+def _sub(parser: argparse.ArgumentParser, name: str) -> argparse.ArgumentParser:
+    subparsers = next(
+        action
+        for action in parser._actions
+        if isinstance(action, argparse._SubParsersAction)
+    )
+    return subparsers.choices[name]
+
+
+@pytest.mark.parametrize(
+    ("command", "pointer"),
+    [("wait", "tail"), ("tail", "wait"), ("tail", "logs"), ("logs", "tail")],
+)
+def test_watch_commands_point_at_each_other(
+    parser: argparse.ArgumentParser, command: str, pointer: str
+) -> None:
+    assert pointer in (_sub(parser, command).description or "")
+
+
+def test_run_wait_help_mentions_streaming(parser: argparse.ArgumentParser) -> None:
+    assert "streaming" in (_sub(parser, "run").description or "") or any(
+        "streaming" in (action.help or "") for action in _sub(parser, "run")._actions
+    )
 def test_journal_parser_flags() -> None:
     parser = build_journal_parser()
     args = _parse(

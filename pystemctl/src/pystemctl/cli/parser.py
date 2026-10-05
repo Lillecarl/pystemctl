@@ -284,6 +284,13 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="pystemctl",
         description="Inspect and control systemd units, and run ephemeral user units.",
+        epilog=(
+            "ephemeral jobs: run, jobs, wait, tail. "
+            "wait reports the outcome, tail streams the output until the unit stops, "
+            "logs reads past lines. "
+            "unit control: list, start, stop, restart, reload, rm, enable, disable, "
+            "is-active, is-failed, is-enabled, cat, show, daemon-reload."
+        ),
     )
     subparsers = parser.add_subparsers(dest="command", required=True)
 
@@ -327,7 +334,11 @@ def build_parser() -> argparse.ArgumentParser:
     )
     run.add_argument("--replace", action="store_true", help="replace an existing unit of this name")
     run.add_argument("--no-block", action="store_true", help="do not wait for the start job")
-    run.add_argument("--wait", action="store_true", help="wait until the command exits")
+    run.add_argument(
+        "--wait",
+        action="store_true",
+        help="wait until the command exits, streaming its output",
+    )
     run.add_argument("--runtime-max", type=float, metavar="SECONDS")
     run.add_argument("--nice", type=int)
     run.add_argument("--slice", dest="slice_name", metavar="SLICE")
@@ -396,7 +407,7 @@ def build_parser() -> argparse.ArgumentParser:
         subparsers,
         "logs",
         commands.cmd_logs,
-        "show journal entries for units",
+        "show journal entries for units (tail follows live output instead)",
         option_groups=[
             _unit_positional(required=False),
             _job_filter_options(),
@@ -426,7 +437,7 @@ def build_parser() -> argparse.ArgumentParser:
         subparsers,
         "wait",
         commands.cmd_wait,
-        "wait for a unit to finish or log a match",
+        "wait for a unit to finish or log a match (tail streams the output)",
         option_groups=[_watch_options(), _replay_option(200), _target_selector()],
     )
 
@@ -434,7 +445,8 @@ def build_parser() -> argparse.ArgumentParser:
         subparsers,
         "tail",
         commands.cmd_tail,
-        "follow a unit's output until it stops or a line matches",
+        "follow a unit's output until it stops or a line matches "
+        "(wait only reports the outcome; logs reads past lines)",
         option_groups=[
             _replay_option(200),
             _watch_options(),
