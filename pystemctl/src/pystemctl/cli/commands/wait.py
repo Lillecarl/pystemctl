@@ -55,7 +55,10 @@ async def _until_pattern_then_cancel(
     # A watcher is usually attached after the job starts, so replay recent
     # output by default; starting at the tail would miss what already printed.
     replay = args.lines if args.lines is not None else DEFAULT_REPLAY
-    await follow_matching(name, args, outcome, group, replay=replay, stop_on_match=True)
+    await follow_matching(
+        name, args, outcome, group, replay=replay, stop_on_match=True,
+        skip_notices=False,
+    )
 
 
 def _report(args: argparse.Namespace, name: str, outcome: WatchOutcome) -> int:

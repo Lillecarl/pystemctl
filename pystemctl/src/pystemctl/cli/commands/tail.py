@@ -70,7 +70,10 @@ async def _stream(
     replay: int,
     group: anyio.abc.TaskGroup,
 ) -> None:
-    await follow_matching(name, args, outcome, group, replay=replay, stop_on_match=True)
+    await follow_matching(
+        name, args, outcome, group, replay=replay, stop_on_match=True,
+        skip_notices=args.grep is None,
+    )
 
 
 async def _watch(bus: Bus, name: str, outcome: WatchOutcome, group: anyio.abc.TaskGroup) -> None:

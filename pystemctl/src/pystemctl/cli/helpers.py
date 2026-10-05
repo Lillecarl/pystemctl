@@ -254,13 +254,16 @@ async def follow_matching(
     *,
     replay: int,
     stop_on_match: bool,
+    skip_notices: bool = True,
 ) -> None:
     """Stream a unit's output into stdout, recording a pattern match.
 
     Shared by ``wait`` and ``tail``. With ``stop_on_match`` the first matching
     line ends the watch; otherwise every line is printed and only a match is
     recorded. The pattern is matched against each entry's MESSAGE, so --grep
-    means the same thing whatever the output mode is.
+    means the same thing whatever the output mode is. A set pattern matches
+    the manager's lifecycle lines too, so waiting on an expected notice
+    still works; without one they stay hidden.
     """
     system_units, user_units = unit_groups([name], args.scope)
     async for line in jr.follow_lines(
@@ -269,6 +272,7 @@ async def follow_matching(
         pattern=args.grep,
         mode="json" if getattr(args, "json", False) else "cat",
         since_lines=replay,
+        skip_notices=skip_notices,
     ):
         print(line, flush=True)
         if args.grep:
