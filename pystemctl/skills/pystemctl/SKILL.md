@@ -155,5 +155,6 @@ resolves it at completion time.
   when a later `wait` / `tail` / `jobs` lookup needs the result.
 - Prefer `--json` plus `show -P` when scripting over `status` text.
 - Shell completion (bash, zsh, fish) completes subcommands, unit names
-  from the running manager, and profile names. A failed manager lookup
-  completes nothing rather than erroring.
+  and files, tags, sessions, slices, env keys, priorities, and property
+  names from live state. A failed manager lookup completes nothing rather
+  than erroring.

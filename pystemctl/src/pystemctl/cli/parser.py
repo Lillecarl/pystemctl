@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 import argparse
-from collections.abc import Awaitable, Callable, Sequence
+import os
+from collections.abc import Awaitable, Callable, Iterable, Sequence
 
 from .. import journal as jr
 from ..bus import Bus, Scope
@@ -21,45 +22,260 @@ def _profile_completer(**_: object) -> list[str]:
         return []
 
 
-def _unit_completer(prefix: str = "", parsed_args: object = None, **_: object) -> list[str]:
-    """Unit names from the relevant service manager.
+def _complete_from_bus(
+    prefix: str,
+    parsed_args: object,
+    query: Callable[[Bus], Awaitable[Iterable[str]]],
+) -> list[str]:
+    """Run a bus query for completion; [] on any failure.
 
-    Completion must never fail loudly: anything wrong means no suggestions.
+    Completion must never fail loudly. The manager may be unreachable, and
+    a traceback on TAB is worse than no suggestions.
     """
     try:
         import anyio
 
         from ..bus import Scope, connect
-        from ..systemd.units import list_units
 
         scope = getattr(parsed_args, "scope", None) or Scope.USER
 
-        async def names() -> list[str]:
+        async def run() -> Iterable[str]:
             async with connect(scope) as bus:
-                return [unit.name for unit in await list_units(bus)]
+                return await query(bus)
 
-        return [name for name in anyio.run(names) if name.startswith(prefix)]
+        names = anyio.run(run)
     except Exception:
         return []
+    return sorted({name for name in names if name.startswith(prefix)})
+
+
+def _unit_completer(
+    prefix: str = "", parsed_args: object = None, **_: object
+) -> list[str]:
+    """Unit names from the relevant service manager."""
+    from ..systemd.units import list_units
+
+    async def query(bus: Bus) -> list[str]:
+        return [unit.name for unit in await list_units(bus)]
+
+    return _complete_from_bus(prefix, parsed_args, query)
+
+
+def _unit_file_completer(
+    prefix: str = "", parsed_args: object = None, **_: object
+) -> list[str]:
+    """Installed unit file names, for enable and disable."""
+    from ..systemd.units import list_unit_files
+
+    async def query(bus: Bus) -> list[str]:
+        return [os.path.basename(path) for path, _state in await list_unit_files(bus)]
+
+    return _complete_from_bus(prefix, parsed_args, query)
+
+
+def _slice_completer(
+    prefix: str = "", parsed_args: object = None, **_: object
+) -> list[str]:
+    """Slice names from the relevant service manager."""
+    from ..systemd.units import list_units
+
+    async def query(bus: Bus) -> list[str]:
+        return [unit.name for unit in await list_units(bus) if unit.name.endswith(".slice")]
+
+    return _complete_from_bus(prefix, parsed_args, query)
+
+
+def _tags_completer(
+    prefix: str = "", parsed_args: object = None, **_: object
+) -> list[str]:
+    """Tags carried by any job, whatever the session."""
+    from ..systemd.jobs import collect_jobs
+
+    async def query(bus: Bus) -> list[str]:
+        jobs = await collect_jobs(bus, session=None, include_inactive=True)
+        return [tag for job in jobs for tag in job.tags]
+
+    return _complete_from_bus(prefix, parsed_args, query)
+
+
+def _session_completer(
+    prefix: str = "", parsed_args: object = None, **_: object
+) -> list[str]:
+    """Session ids carried by any job."""
+    from ..systemd.jobs import collect_jobs
+
+    async def query(bus: Bus) -> list[str]:
+        jobs = await collect_jobs(bus, session=None, include_inactive=True)
+        return [job.session for job in jobs if job.session]
+
+    return _complete_from_bus(prefix, parsed_args, query)
+
+
+def _show_property_completer(
+    prefix: str = "", parsed_args: object = None, **_: object
+) -> list[str]:
+    """Property names of the unit being shown."""
+    from .. import systemd as sd
+
+    targets = getattr(parsed_args, "units", None) or []
+    if not targets:
+        return []
+
+    async def query(bus: Bus) -> Iterable[str]:
+        return await sd.unit_properties(bus, sd.normalize_unit_name(targets[0]))
+
+    return _complete_from_bus(prefix, parsed_args, query)
+
+
+def _env_completer(prefix: str = "", **_: object) -> list[str]:
+    """Caller environment variable names, up to the '='."""
+    key, separator, _value = prefix.partition("=")
+    if separator:
+        return []
+    return sorted(name for name in os.environ if name.startswith(key))
+
+
+def _executable_completer(prefix: str = "", parsed_args: object = None, **_: object) -> list[str]:
+    """Executables on PATH for the command word; files after that."""
+    if "/" in prefix:
+        return []
+    words = getattr(parsed_args, "command", None) or []
+    if words:
+        return []
+    found: set[str] = set()
+    for directory in os.environ.get("PATH", "").split(os.pathsep):
+        try:
+            entries = os.listdir(directory)
+        except OSError:
+            continue
+        for entry in entries:
+            if not entry.startswith(prefix):
+                continue
+            path = os.path.join(directory, entry)
+            if os.path.isfile(path) and os.access(path, os.X_OK):
+                found.add(entry)
+    return sorted(found)
+
+
+_UNIT_TYPES = [
+    "service",
+    "socket",
+    "device",
+    "mount",
+    "automount",
+    "swap",
+    "target",
+    "path",
+    "timer",
+    "slice",
+    "scope",
+]
+
+_ACTIVE_STATES = ["active", "inactive", "failed", "activating", "deactivating"]
+
+_FILE_STATES = [
+    "enabled",
+    "enabled-runtime",
+    "linked",
+    "linked-runtime",
+    "alias",
+    "masked",
+    "masked-runtime",
+    "static",
+    "disabled",
+    "indirect",
+    "generated",
+    "transient",
+]
+
+_PRIORITIES = ["emerg", "alert", "crit", "err", "warning", "notice", "info", "debug"]
+
+_SERVICE_PROPERTIES = [
+    "CPUQuota",
+    "CPUWeight",
+    "Description",
+    "Environment",
+    "Group",
+    "IOWeight",
+    "KillMode",
+    "LimitNOFILE",
+    "LimitNPROC",
+    "MemoryHigh",
+    "MemoryLow",
+    "MemoryMax",
+    "Nice",
+    "NoNewPrivileges",
+    "PrivateTmp",
+    "ProtectHome",
+    "ProtectSystem",
+    "RemainAfterExit",
+    "Restart",
+    "RestartSec",
+    "RuntimeMaxSec",
+    "Slice",
+    "SuccessExitStatus",
+    "SupplementaryGroups",
+    "TasksMax",
+    "TimeoutStartSec",
+    "TimeoutStopSec",
+    "User",
+    "WorkingDirectory",
+]
+
+
+def _from_list(values: Sequence[str]) -> Callable[..., list[str]]:
+    def complete(prefix: str = "", **_: object) -> list[str]:
+        return [value for value in values if value.startswith(prefix)]
+
+    complete.__name__ = f"complete_{len(values)}_static"
+    return complete
+
+
+_unit_type_completer = _from_list(_UNIT_TYPES)
+_unit_state_completer = _from_list(_ACTIVE_STATES)
+_unit_file_state_completer = _from_list(_FILE_STATES)
+_priority_completer = _from_list(_PRIORITIES)
+_service_property_completer = _from_list(_SERVICE_PROPERTIES)
 
 
 def register_completers(parser: argparse.ArgumentParser) -> None:
     """Attach value completers that argcomplete resolves at completion time."""
-    completers = {
+    global_completers = {
         "profile": _profile_completer,
         "name": _profile_completer,
         "units": _unit_completer,
         "unit": _unit_completer,
         "system_units": _unit_completer,
         "user_units": _unit_completer,
+        "tags": _tags_completer,
+        "session": _session_completer,
+        "setenv": _env_completer,
+        "property": _service_property_completer,
+        "properties": _show_property_completer,
+        "slice_name": _slice_completer,
+        "priority": _priority_completer,
+        "command": _executable_completer,
     }
-    parsers = [parser]
+    # Dests shared by unrelated options need per-command precision: run's
+    # --type takes choices that argcomplete already completes, while list's
+    # --type is free text, and enable wants files where the rest want units.
+    per_command = {
+        "enable": {"units": _unit_file_completer},
+        "disable": {"units": _unit_file_completer},
+        "list": {"type": _unit_type_completer, "state": _unit_state_completer},
+        "list-unit-files": {
+            "type": _unit_type_completer,
+            "state": _unit_file_state_completer,
+        },
+    }
+    targets: list[tuple[str, argparse.ArgumentParser]] = [("", parser)]
     for action in parser._actions:
         if isinstance(action, argparse._SubParsersAction):
-            parsers.extend(action.choices.values())
-    for target in parsers:
+            targets.extend(action.choices.items())
+    for name, target in targets:
+        overrides = per_command.get(name, {})
         for subaction in target._actions:
-            completer = completers.get(subaction.dest)
+            completer = overrides.get(subaction.dest, global_completers.get(subaction.dest))
             if completer is not None:
                 subaction.completer = completer
 
