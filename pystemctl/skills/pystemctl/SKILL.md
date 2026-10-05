@@ -162,10 +162,14 @@ resolves it at completion time.
   `--clean` was passed or a profile's `inherit_env` glob does not cover it.
 - With `--system`, unit environments are visible on the system bus. Do not
   run secrets through env there unless every local user may read them.
-- A collected unit loses its exit status. Keep `--no-collect` or a `--tag`
-  when a later `wait` needs the result; `logs --tag` still reads a
-  collected job's output from the journal. Even so, the manager unloads a
-  successful unit within about a second, so `wait` promptly or use `--wait`.
+- A finished job has two lifetimes. The manager unloads a successful unit
+  within about a second unless it is still running, failed, or kept with
+  `--remain-after-exit`; only the journal entries survive that, so `logs
+  --tag` still reads a collected job's output but `wait` / `status` lose
+  its exit status. `--no-collect` and `--tag` only skip that unloading,
+  they do not pin the unit: `wait` promptly or use `--wait` when the exit
+  code matters. (`wait` on a `--remain-after-exit` unit currently hangs;
+  read its result with `status` or `logs` instead.)
 - `stop` / `rm` name the owning session on stderr when the unit is another
   session's; `logs` fails on a name that never ran instead of printing
   nothing, and `status` says "could not be found" for those.
