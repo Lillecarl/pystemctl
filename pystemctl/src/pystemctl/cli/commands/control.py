@@ -10,8 +10,8 @@ from collections.abc import Awaitable, Callable
 from jeepney.wrappers import DBusErrorResponse
 
 from ... import systemd as sd
-from ...bus import Bus, Scope
-from ..helpers import has_journal_trace, note_foreign_session
+from ...bus import Bus
+from ..helpers import note_foreign_session
 
 _Action = Callable[[Bus, str], Awaitable[str]]
 
@@ -70,14 +70,10 @@ async def cmd_rm(bus: Bus, args: argparse.Namespace) -> int:
         name = sd.normalize_unit_name(raw)
         props = await sd.try_unit_properties(bus, name)
         if not props or props.get("LoadState") == "not-found":
-            # Forgetting what is already forgotten is done, not an error --
-            # but only when the journal proves it ran. A bare name with no
-            # trace is a typo, and answering that with success would hide it.
-            if await has_journal_trace(name, getattr(args, "scope", Scope.USER)):
-                removed.append({"unit": name, "removed": True})
-                if not args.json:
-                    print(f"pystemctl: {name} already finished and was collected.")
-                continue
+            # Gone is gone, whether the journal remembers it or not: removing
+            # something that does not exist is an error, the way rm(1) treats
+            # a missing file. Success here would hide a typo behind a cleanup
+            # that never happened.
             message = f"Unit {name} not found."
             removed.append({"unit": name, "removed": False, "error": message})
             if not args.json:

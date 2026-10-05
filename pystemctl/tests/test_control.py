@@ -63,7 +63,6 @@ def test_rm_reports_a_unit_that_was_never_there(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     _properties(monkeypatch, {})
-    monkeypatch.setattr(control_cmd, "has_journal_trace", _trace(False))
     args = argparse.Namespace(units=["ghost"], json=False)
     code = anyio.run(control_cmd.cmd_rm, None, args)
     assert code == 1
@@ -72,24 +71,17 @@ def test_rm_reports_a_unit_that_was_never_there(
     assert "Removed" not in captured.out
 
 
-def _trace(found: bool) -> Any:
-    async def fake(name: str, scope: object) -> bool:
-        return found
-
-    return fake
-
-
-def test_rm_forgives_a_unit_that_is_already_gone(
+def test_rm_fails_on_a_unit_that_is_already_gone(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    # Forgetting what is already forgotten is done, not an error.
-    _properties(monkeypatch, {})
-    monkeypatch.setattr(control_cmd, "has_journal_trace", _trace(True))
+    # A collected unit is not loaded, so there is nothing to remove: like
+    # rm(1) on a missing file, that is an error, not a quiet success.
+    _properties(monkeypatch, {"LoadState": "not-found"})
     args = argparse.Namespace(units=["old.service"], json=False)
     code = anyio.run(control_cmd.cmd_rm, None, args)
-    assert code == 0
+    assert code == 1
     captured = capsys.readouterr()
-    assert "already finished and was collected" in captured.out
+    assert "not found" in captured.err
     assert "Removed" not in captured.out
 
 
