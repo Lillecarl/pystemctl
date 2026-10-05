@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import argparse
-import json
 import os
 
 from ... import systemd as sd
@@ -16,6 +15,7 @@ from ..helpers import (
     unit_payload,
     unit_payload_from_props,
 )
+from ..output import emit_json
 from .logs import journal_tail
 
 
@@ -41,7 +41,7 @@ async def cmd_list(bus: Bus, args: argparse.Namespace) -> int:
     units.sort(key=lambda unit: unit.name)
 
     if args.json:
-        print(json.dumps([unit_payload(unit) for unit in units]))
+        emit_json([unit_payload(unit) for unit in units])
     else:
         rows = [
             [unit.name, unit.load_state, unit.active_state, unit.sub_state, unit.description]
@@ -61,7 +61,7 @@ async def cmd_list_unit_files(bus: Bus, args: argparse.Namespace) -> int:
     files.sort(key=lambda item: os.path.basename(item[0]))
 
     if args.json:
-        print(json.dumps([{"unit_file": os.path.basename(p), "state": s} for p, s in files]))
+        emit_json([{"unit_file": os.path.basename(p), "unit_file_state": s} for p, s in files])
     else:
         rows = [[os.path.basename(path), state] for path, state in files]
         print(format_table(["UNIT FILE", "STATE"], rows))
@@ -88,7 +88,7 @@ async def cmd_status(bus: Bus, args: argparse.Namespace) -> int:
                 payload = unit_payload_from_props(name, props)
                 if not args.no_journal:
                     payload["journal"] = await journal_tail(name, args.lines, args.scope)
-                print(json.dumps(payload, default=str, ensure_ascii=False))
+                emit_json(payload)
                 continue
             if not trace:
                 print(UnitNotFoundError(name))
@@ -108,7 +108,7 @@ async def cmd_status(bus: Bus, args: argparse.Namespace) -> int:
             payload = unit_payload_from_props(name, props)
             if not args.no_journal:
                 payload["journal"] = await journal_tail(name, args.lines, args.scope)
-            print(json.dumps(payload, default=str, ensure_ascii=False))
+            emit_json(payload)
             continue
 
         print(format_unit_status(name, props))

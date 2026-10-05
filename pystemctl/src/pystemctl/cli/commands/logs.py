@@ -3,13 +3,13 @@
 from __future__ import annotations
 
 import argparse
-import sys
 
 from ... import journal as jr
 from ... import systemd as sd
 from ...bus import Bus, Scope
 from ...errors import UnitNotFoundError
 from ..helpers import has_journal_trace, resolve_units, tail_count, unit_groups
+from ..output import warn
 
 
 async def cmd_logs(bus: Bus, args: argparse.Namespace) -> int:
@@ -55,7 +55,7 @@ async def _drop_unknown(bus: Bus, args: argparse.Namespace, units: list[str]) ->
                 if await has_journal_trace(name, scope):
                     kept.append(name)
                     continue
-                print(f"pystemctl: {UnitNotFoundError(name)}", file=sys.stderr)
+                warn(UnitNotFoundError(name))
                 continue
         kept.append(name)
     return kept

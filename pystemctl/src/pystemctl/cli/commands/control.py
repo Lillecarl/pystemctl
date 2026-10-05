@@ -3,8 +3,6 @@
 from __future__ import annotations
 
 import argparse
-import json
-import sys
 from collections.abc import Awaitable, Callable
 
 from jeepney.wrappers import DBusErrorResponse
@@ -13,6 +11,7 @@ from ... import systemd as sd
 from ...bus import Bus
 from ...errors import UnitNotFoundError, is_no_such_unit
 from ..helpers import note_foreign_session
+from ..output import emit_json, warn
 
 _Action = Callable[[Bus, str], Awaitable[str]]
 
@@ -50,7 +49,7 @@ async def _unit_action(bus: Bus, args: argparse.Namespace, action: _Action) -> i
                 message = f"{name}: {error}"
             results.append({"unit": name, "job_state": "failed", "error": message})
             if not args.json:
-                print(f"pystemctl: {message}", file=sys.stderr)
+                warn(message)
             exit_code = 1
             continue
         state = await sd.wait_job(bus, job)
@@ -60,7 +59,7 @@ async def _unit_action(bus: Bus, args: argparse.Namespace, action: _Action) -> i
         if state != "done":
             exit_code = 1
     if args.json:
-        print(json.dumps(results))
+        emit_json(results)
     return exit_code
 
 
@@ -78,7 +77,7 @@ async def cmd_rm(bus: Bus, args: argparse.Namespace) -> int:
             message = str(UnitNotFoundError(name))
             removed.append({"unit": name, "removed": False, "error": message})
             if not args.json:
-                print(f"pystemctl: {message}", file=sys.stderr)
+                warn(message)
             exit_code = 1
             continue
         if not args.json:
@@ -91,5 +90,5 @@ async def cmd_rm(bus: Bus, args: argparse.Namespace) -> int:
         if not args.json:
             print(f"Removed {name}.")
     if args.json:
-        print(json.dumps(removed))
+        emit_json(removed)
     return exit_code

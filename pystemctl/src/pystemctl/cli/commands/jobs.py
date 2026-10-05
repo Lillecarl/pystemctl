@@ -4,8 +4,6 @@ from __future__ import annotations
 
 import argparse
 import datetime as dt
-import json
-import sys
 from collections.abc import Awaitable, Callable
 
 import anyio
@@ -15,7 +13,8 @@ from ...bus import Bus
 from ...render import LOCAL_TIMEZONE, format_duration, format_table
 from ...systemd.jobs import Job
 from ...systemd.tags import session_id
-from ..helpers import jsonable, unit_payload
+from ..helpers import unit_payload
+from ..output import emit_json, warn
 
 Snapshot = Callable[[], Awaitable[list[Job]]]
 
@@ -50,22 +49,18 @@ async def cmd_jobs(bus: Bus, args: argparse.Namespace) -> int:
         # its hidden count replaces the scoped one instead of adding to it.
         jobs, foreign = _visible(await snapshot(None), args)
         if jobs:
-            print(
-                "pystemctl: no jobs in this session; showing jobs from every session",
-                file=sys.stderr,
-            )
+            warn("no jobs in this session; showing jobs from every session")
 
     if args.json:
-        print(json.dumps([_job_payload(job) for job in jobs]))
+        emit_json([_job_payload(job) for job in jobs])
         return 0
 
     if not jobs:
         if foreign:
             units = "unit" if foreign == 1 else "units"
-            print(
-                f"pystemctl: hiding {foreign} transient {units} that are not "
-                "pystemctl jobs (--all-transient shows them)",
-                file=sys.stderr,
+            warn(
+                f"hiding {foreign} transient {units} that are not "
+                "pystemctl jobs (--all-transient shows them)"
             )
         return 1
 
@@ -112,8 +107,8 @@ def _fingerprint(payload: dict[str, object]) -> tuple[object, ...]:
     # The fields that change while a job runs. An age tick alone is not a
     # change worth a line.
     return (
-        payload.get("active"),
-        payload.get("sub"),
+        payload.get("active_state"),
+        payload.get("sub_state"),
         payload.get("result"),
         payload.get("exit_status"),
         payload.get("main_pid"),
@@ -122,9 +117,9 @@ def _fingerprint(payload: dict[str, object]) -> tuple[object, ...]:
 
 def _emit_follow_line(args: argparse.Namespace, event: str, payload: dict[str, object]) -> None:
     if args.json:
-        print(json.dumps({"event": event, "job": jsonable(payload)}), flush=True)
+        emit_json({"event": event, "job": payload}, flush=True)
         return
-    status = payload.get("result") or payload.get("sub") or ""
+    status = payload.get("result") or payload.get("sub_state") or ""
     extra = f" {status}" if status else ""
     print(f"{event:<7} {payload.get('unit')}{extra}", flush=True)
 
@@ -146,7 +141,7 @@ def _table(jobs: list[Job]) -> str:
 
 def _job_payload(job: Job) -> dict[str, object]:
     return {
-        **jsonable(unit_payload(job.unit)),
+        **unit_payload(job.unit),
         "tags": job.tags,
         "session": job.session,
         "main_pid": job.main_pid,

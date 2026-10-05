@@ -173,3 +173,16 @@ def test_shell_quotes_arguments(
     assert anyio.run(run_cmd.cmd_run, BUS, args) == 0
     assert seen[0].argv[2] == "echo 'a  b'"
     capsys.readouterr()
+
+
+def test_detached_json_run_reports_the_shared_keys(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    _finishing(monkeypatch)
+    _following(monkeypatch, ["hello"])
+    assert anyio.run(run_cmd.cmd_run, BUS, _run_args(wait=False, json=True)) == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["unit"] == "job.service"
+    assert payload["active_state"] == "active"
+    assert "exit_status" in payload
+    assert "main_status" not in payload

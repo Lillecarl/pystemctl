@@ -10,6 +10,7 @@ from conftest import BUS
 from pystemctl.bus import Scope
 from pystemctl.cli.commands import units as units_cmd
 from pystemctl.errors import UnitNotFoundError
+from pystemctl.systemd import Unit
 
 
 def _args(**overrides: object) -> argparse.Namespace:
@@ -89,6 +90,11 @@ def test_status_collected_unit_json_carries_logs(
     assert code == 3
     payload = json.loads(capsys.readouterr().out)
     assert payload["journal"] == ["hello"]
+    assert payload["load_state"] == "not-found"
+    assert payload["active_state"] == "inactive"
+    assert "load" not in payload
+    assert "active" not in payload
+    assert "sub" not in payload
 
 
 def test_status_names_a_unit_that_never_ran(
@@ -132,3 +138,53 @@ def test_status_invalid_name_reports_not_found(
     code = anyio.run(units_cmd.cmd_status, BUS, _args(units=["///.service"]))
     assert code == 4
     assert "Unit ///.service not found." in capsys.readouterr().out
+
+
+def _listed_unit() -> Unit:
+    return Unit(
+        name="job.service",
+        description="a job",
+        load_state="loaded",
+        active_state="active",
+        sub_state="running",
+        following="",
+        path="/org/freedesktop/systemd1/unit/job_2eservice",
+        job_id=0,
+        job_type="",
+        job_path="",
+    )
+
+
+def test_list_json_uses_the_shared_state_keys(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    async def listing(bus: object) -> list[Unit]:
+        return [_listed_unit()]
+
+    monkeypatch.setattr(units_cmd.sd, "list_units", listing)
+    args = argparse.Namespace(all=True, type=None, state=None, ephemeral=False, json=True)
+    assert anyio.run(units_cmd.cmd_list, BUS, args) == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload == [
+        {
+            "unit": "job.service",
+            "description": "a job",
+            "load_state": "loaded",
+            "active_state": "active",
+            "sub_state": "running",
+            "path": "/org/freedesktop/systemd1/unit/job_2eservice",
+        }
+    ]
+
+
+def test_list_unit_files_json_names_the_file_state(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    async def listing(bus: object) -> list[tuple[str, str]]:
+        return [("/usr/lib/systemd/system/a.service", "enabled")]
+
+    monkeypatch.setattr(units_cmd.sd, "list_unit_files", listing)
+    args = argparse.Namespace(type=None, state=None, json=True)
+    assert anyio.run(units_cmd.cmd_list_unit_files, BUS, args) == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload == [{"unit_file": "a.service", "unit_file_state": "enabled"}]

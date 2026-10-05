@@ -89,6 +89,8 @@ def test_report_json_carries_the_exit_code(capsys: pytest.CaptureFixture[str]) -
     payload = json.loads(capsys.readouterr().out)
     assert payload["exit_code"] == 9
     assert payload["result"] == "exit-code"
+    assert payload["exit_status"] == 9
+    assert "status" not in payload
     assert code == 9
 
 

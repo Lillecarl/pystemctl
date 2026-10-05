@@ -3,12 +3,12 @@
 from __future__ import annotations
 
 import argparse
-import json
 
 from ... import profiles
 from ...bus import Bus
 from ...errors import PystemctlError
 from ...render import format_table
+from ..output import emit_json
 
 
 async def cmd_profile(_bus: Bus, args: argparse.Namespace) -> int:
@@ -21,7 +21,7 @@ async def cmd_profile(_bus: Bus, args: argparse.Namespace) -> int:
 
     if args.action == "list":
         if args.json:
-            print(json.dumps(sorted(available)))
+            emit_json(sorted(available))
             return 0
         if not available:
             print("No profiles defined.")
@@ -38,27 +38,23 @@ async def cmd_profile(_bus: Bus, args: argparse.Namespace) -> int:
 
     profile = available[args.name]
     if args.json:
-        print(
-            json.dumps(
-                {
-                    "name": profile.name,
-                    "description": profile.description,
-                    "inherit_env": list(profile.inherit_env),
-                    "env": dict(profile.env),
-                    "working_directory": profile.working_directory,
-                    "working_directory_mode": profile.working_directory_mode,
-                    "unit_type": profile.unit_type,
-                    "tags": list(profile.tags),
-                    "slice": profile.slice_name,
-                    "nice": profile.nice,
-                    "runtime_max": profile.runtime_max_sec,
-                    "remain_after_exit": profile.remain_after_exit,
-                    "collect": profile.collect,
-                    "properties": {
-                        name: value for name, (_sig, value) in profile.properties.items()
-                    },
-                }
-            )
+        emit_json(
+            {
+                "name": profile.name,
+                "description": profile.description,
+                "inherit_env": list(profile.inherit_env),
+                "env": dict(profile.env),
+                "working_directory": profile.working_directory,
+                "working_directory_mode": profile.working_directory_mode,
+                "unit_type": profile.unit_type,
+                "tags": list(profile.tags),
+                "slice": profile.slice_name,
+                "nice": profile.nice,
+                "runtime_max": profile.runtime_max_sec,
+                "remain_after_exit": profile.remain_after_exit,
+                "collect": profile.collect,
+                "properties": {name: value for name, (_sig, value) in profile.properties.items()},
+            }
         )
         return 0
 

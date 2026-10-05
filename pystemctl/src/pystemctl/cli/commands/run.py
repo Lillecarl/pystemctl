@@ -24,6 +24,7 @@ from ..helpers import (
     strip_separator,
     watch_unit,
 )
+from ..output import warn
 
 
 def _caller_environment(args: argparse.Namespace) -> dict[str, str]:
@@ -151,20 +152,17 @@ async def cmd_run(bus: Bus, args: argparse.Namespace) -> int:
         "active_state": props.get("ActiveState"),
         "sub_state": props.get("SubState"),
         "result": props.get("Result"),
-        "main_status": props.get("ExecMainStatus"),
+        "exit_status": props.get("ExecMainStatus"),
     }
     if not args.wait:
         emit(args, name, payload)
 
     if job_state is not None and job_state != "done":
-        print(f"pystemctl: start job for {name} ended in state {job_state}", file=sys.stderr)
+        warn(f"start job for {name} ended in state {job_state}")
         return 1
     if not args.wait:
         if not args.json:
-            print(
-                f"pystemctl: see it with pystemctl logs {name}, or pystemctl wait {name}",
-                file=sys.stderr,
-            )
+            warn(f"see it with pystemctl logs {name}, or pystemctl wait {name}")
         return 0
     if args.json:
         emit(args, name, payload)

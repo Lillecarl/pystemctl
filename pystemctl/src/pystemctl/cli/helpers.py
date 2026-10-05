@@ -4,8 +4,6 @@ from __future__ import annotations
 
 import argparse
 import datetime as dt
-import json
-import sys
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 from functools import partial
@@ -20,6 +18,7 @@ from ..errors import PystemctlError, UnitNotFoundError
 from ..systemd import Unit
 from ..systemd.tags import read_tags, session_id
 from ..systemd.units import environment_of
+from .output import emit_json, warn
 
 
 async def _collected_fallback(
@@ -40,10 +39,7 @@ async def _collected_fallback(
         name = None
     if name is None:
         raise missing
-    print(
-        f"pystemctl: {name} already finished and was collected; reading its journal",
-        file=sys.stderr,
-    )
+    warn(f"{name} already finished and was collected; reading its journal")
     return name
 
 
@@ -67,11 +63,10 @@ async def resolve_target(bus: Bus, args: argparse.Namespace) -> str:
     if chosen is None:
         raise PystemctlError("no unit or tag given")
     if others:
-        print(
-            f"pystemctl: {len(others) + 1} jobs match {', '.join(tags)}; "
+        warn(
+            f"{len(others) + 1} jobs match {', '.join(tags)}; "
             f"using the newest, {chosen.name} "
-            f"(also: {', '.join(job.name for job in others)})",
-            file=sys.stderr,
+            f"(also: {', '.join(job.name for job in others)})"
         )
     return chosen.name
 
@@ -96,11 +91,10 @@ async def resolve_units(bus: Bus, args: argparse.Namespace) -> list[str]:
             if chosen is None:
                 raise PystemctlError("give a unit name or at least one --tag")
             if others:
-                print(
-                    f"pystemctl: {len(others) + 1} jobs match {', '.join(tags)}; "
+                warn(
+                    f"{len(others) + 1} jobs match {', '.join(tags)}; "
                     f"using the newest, {chosen.name} "
-                    f"(also: {', '.join(job.name for job in others)})",
-                    file=sys.stderr,
+                    f"(also: {', '.join(job.name for job in others)})"
                 )
             units.append(chosen.name)
     if not units:
@@ -130,7 +124,7 @@ async def resolve_existing(bus: Bus, args: argparse.Namespace) -> tuple[str, dic
 
 def emit(args: argparse.Namespace, text: str | None, payload: Any) -> None:
     if getattr(args, "json", False):
-        print(json.dumps(payload, default=str, ensure_ascii=False))
+        emit_json(payload)
     elif text is not None:
         print(text)
 
@@ -184,9 +178,9 @@ def unit_payload(unit: Unit) -> dict[str, Any]:
     return {
         "unit": unit.name,
         "description": unit.description,
-        "load": unit.load_state,
-        "active": unit.active_state,
-        "sub": unit.sub_state,
+        "load_state": unit.load_state,
+        "active_state": unit.active_state,
+        "sub_state": unit.sub_state,
         "path": unit.path,
     }
 
@@ -195,9 +189,9 @@ def unit_payload_from_props(name: str, props: dict[str, Any]) -> dict[str, Any]:
     return {
         "unit": name,
         "description": props.get("Description"),
-        "load": props.get("LoadState"),
-        "active": props.get("ActiveState"),
-        "sub": props.get("SubState"),
+        "load_state": props.get("LoadState"),
+        "active_state": props.get("ActiveState"),
+        "sub_state": props.get("SubState"),
         "path": props.get("FragmentPath"),
         "transient": bool(props.get("Transient")),
         "result": props.get("Result"),
@@ -213,14 +207,6 @@ class NoTimeout:
 
     def __exit__(self, *exc: object) -> bool:
         return False
-
-
-def jsonable(value: Any) -> Any:
-    if isinstance(value, bytes):
-        return value.decode("utf-8", "replace")
-    if isinstance(value, (list, tuple)):
-        return [jsonable(item) for item in value]
-    return value
 
 
 @dataclass
@@ -271,18 +257,12 @@ def note_foreign_session(name: str, props: dict[str, Any]) -> None:
     """
     session = unit_session(props)
     if session is not None and session != session_id():
-        print(
-            f"pystemctl: {name} belongs to session {session}; acting anyway",
-            file=sys.stderr,
-        )
+        warn(f"{name} belongs to session {session}; acting anyway")
 
 
 def timeout_note(args: argparse.Namespace, name: str) -> None:
     """Say a bounded wait gave up, so silence never reads as success."""
-    print(
-        f"pystemctl: timed out after {args.timeout:g}s waiting for {name}",
-        file=sys.stderr,
-    )
+    warn(f"timed out after {args.timeout:g}s waiting for {name}")
 
 
 #: Exit code when a bounded wait gives up. The unit's own exit is unknown, so

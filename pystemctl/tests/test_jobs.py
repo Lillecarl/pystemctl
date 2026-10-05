@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 from collections.abc import Sequence
 
 import anyio
@@ -229,3 +230,20 @@ def test_jobs_fallback_reports_unscoped_hidden_count(
     code = anyio.run(jobs_cmd.cmd_jobs, BUS, _cmd_args(session="s1"))
     assert code == 1
     assert "hiding 2 transient units" in capsys.readouterr().err
+
+
+def test_jobs_json_uses_the_shared_state_keys(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    _collecting(monkeypatch, {None: [_job(session="other")]})
+    code = anyio.run(jobs_cmd.cmd_jobs, BUS, _cmd_args(any_session=True, json=True))
+    assert code == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert len(payload) == 1
+    item = payload[0]
+    assert item["unit"] == "job.service"
+    assert item["active_state"] == "active"
+    assert item["sub_state"] == "running"
+    assert "active" not in item
+    assert "sub" not in item
+    assert "load" not in item

@@ -3,8 +3,6 @@
 from __future__ import annotations
 
 import argparse
-import json
-import sys
 from collections.abc import Sequence
 from pathlib import Path
 
@@ -14,7 +12,7 @@ from ... import systemd as sd
 from ...bus import MANAGER_INTERFACE, SYSTEMD_PATH, Bus
 from ...errors import PystemctlError
 from ...render import format_property_value
-from ..helpers import jsonable
+from ..output import emit_json, jsonable, warn
 
 
 def _query_states(
@@ -23,15 +21,18 @@ def _query_states(
     *,
     expected: set[str],
     exit_code: int,
+    state_key: str = "active_state",
 ) -> int:
     """Print a per-unit state, as lines or as JSON, and set the exit status.
 
     The exit status is non-zero when any unit is not in ``expected``, and is
-    reported the same way whether or not JSON was asked for.
+    reported the same way whether or not JSON was asked for. The JSON key
+    names what was queried: runtime states report ``active_state``, while
+    is-enabled reports ``unit_file_state``.
     """
     failed = any(state not in expected for _name, state in results)
     if args.json:
-        print(json.dumps([{"unit": name, "state": state} for name, state in results]))
+        emit_json([{"unit": name, state_key: state} for name, state in results])
     elif len(results) > 1:
         for name, state in results:
             print(f"{name}: {state}")
@@ -67,7 +68,9 @@ async def cmd_is_enabled(bus: Bus, args: argparse.Namespace) -> int:
         except DBusErrorResponse:
             state = "not-found"
         results.append((name, state or "not-found"))
-    return _query_states(args, results, expected=enabled_states, exit_code=1)
+    return _query_states(
+        args, results, expected=enabled_states, exit_code=1, state_key="unit_file_state"
+    )
 
 
 async def cmd_enable(bus: Bus, args: argparse.Namespace) -> int:
@@ -86,7 +89,7 @@ async def cmd_enable(bus: Bus, args: argparse.Namespace) -> int:
             else:
                 print(f"{change_type} {destination}")
     if args.json:
-        print(json.dumps(report))
+        emit_json(report)
     return 0
 
 
@@ -104,7 +107,7 @@ async def cmd_disable(bus: Bus, args: argparse.Namespace) -> int:
             else:
                 print(f"{change_type} {destination}")
     if args.json:
-        print(json.dumps(report))
+        emit_json(report)
     return 0
 
 
@@ -121,7 +124,7 @@ async def cmd_cat(bus: Bus, args: argparse.Namespace) -> int:
         if not paths:
             report.append({"unit": name, "files": []})
             if not args.json:
-                print(f"No files found for {name}.", file=sys.stderr)
+                warn(f"No files found for {name}.")
             continue
         files: list[dict[str, str]] = []
         for path in paths:
@@ -129,7 +132,7 @@ async def cmd_cat(bus: Bus, args: argparse.Namespace) -> int:
                 content = Path(path).read_text()
             except OSError as error:
                 if not args.json:
-                    print(f"# {path}\n# unable to read: {error}", file=sys.stderr)
+                    warn(f"# {path}\n# unable to read: {error}")
                 continue
             files.append({"path": path, "content": content})
             if not args.json:
@@ -137,7 +140,7 @@ async def cmd_cat(bus: Bus, args: argparse.Namespace) -> int:
                 print(content)
         report.append({"unit": name, "files": files})
     if args.json:
-        print(json.dumps(report))
+        emit_json(report)
     return 0
 
 
@@ -159,7 +162,7 @@ async def cmd_show(bus: Bus, args: argparse.Namespace) -> int:
             props = {name: props[name] for name in wanted}
 
         if args.json:
-            print(json.dumps({key: jsonable(value) for key, value in props.items()}, default=str))
+            emit_json({key: jsonable(value) for key, value in props.items()})
             continue
         if target is not None and wanted is None:
             print(f"# {target}")
@@ -171,5 +174,5 @@ async def cmd_show(bus: Bus, args: argparse.Namespace) -> int:
 async def cmd_daemon_reload(bus: Bus, args: argparse.Namespace) -> int:
     await sd.reload_manager(bus)
     if args.json:
-        print(json.dumps({"reloaded": True}))
+        emit_json({"reloaded": True})
     return 0

@@ -3,8 +3,6 @@
 from __future__ import annotations
 
 import argparse
-import json
-import sys
 
 import anyio
 
@@ -15,11 +13,11 @@ from ..helpers import (
     NoTimeout,
     WatchOutcome,
     exit_code_from,
-    jsonable,
     resolve_existing,
     timeout_note,
     watch_unit,
 )
+from ..output import emit_json, warn
 
 DEFAULT_REPLAY = 200
 
@@ -68,15 +66,15 @@ def _report(args: argparse.Namespace, name: str, outcome: WatchOutcome) -> int:
         "unit": name,
         "active_state": outcome.props.get("ActiveState"),
         "result": result,
-        "status": status,
+        "exit_status": status,
         "matched": outcome.matched,
         "exit_code": code,
     }
 
     if args.json:
-        print(json.dumps(jsonable(payload)))
+        emit_json(payload)
     elif outcome.matched:
-        print(f"pystemctl: {name}: pattern matched", file=sys.stderr)
+        warn(f"{name}: pattern matched")
 
     return code
 
@@ -92,7 +90,7 @@ def _report_timeout(args: argparse.Namespace, name: str, outcome: WatchOutcome) 
         "unit": name,
         "active_state": outcome.props.get("ActiveState"),
         "result": outcome.props.get("Result"),
-        "status": outcome.props.get("ExecMainStatus"),
+        "exit_status": outcome.props.get("ExecMainStatus"),
         "matched": False,
         "timed_out": True,
         "timeout": args.timeout,
@@ -100,7 +98,7 @@ def _report_timeout(args: argparse.Namespace, name: str, outcome: WatchOutcome) 
     }
 
     if args.json:
-        print(json.dumps(jsonable(payload)))
+        emit_json(payload)
     else:
         timeout_note(args, name)
     return TIMEOUT_EXIT_CODE

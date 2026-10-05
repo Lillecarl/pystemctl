@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import argparse
 import re
-import sys
 
 import anyio
 
@@ -21,6 +20,7 @@ from ..helpers import (
     unit_groups,
     watch_unit,
 )
+from ..output import warn
 
 DEFAULT_REPLAY = 200
 
@@ -88,10 +88,9 @@ def _report(args: argparse.Namespace, name: str, outcome: WatchOutcome) -> int:
         return 0 if outcome.matched else 1
     if args.until_exit:
         if not outcome.props.get("Type"):
-            print(
-                f"pystemctl: {name}: no result recorded; the unit was collected "
-                "on stop, which discards its exit status",
-                file=sys.stderr,
+            warn(
+                f"{name}: no result recorded; the unit was collected "
+                "on stop, which discards its exit status"
             )
             return 1
         return exit_code_from(outcome.props)
