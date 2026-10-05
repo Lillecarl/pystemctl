@@ -97,9 +97,13 @@ def _finishing(monkeypatch: pytest.MonkeyPatch) -> None:
     async def finished(bus: object, name: str) -> dict[str, object]:
         return {"Result": "success", "ActiveState": "inactive", "ExecMainStatus": 0}
 
+    async def current(bus: object, name: str) -> dict[str, object]:
+        return {"ActiveState": "active", "SubState": "running"}
+
     monkeypatch.setattr(run_cmd.sd, "start_transient", start)
     monkeypatch.setattr(run_cmd.sd, "wait_job", started)
     monkeypatch.setattr(run_cmd.sd, "wait_until_finished", finished)
+    monkeypatch.setattr(run_cmd.sd, "try_unit_properties", current)
 
 
 def test_stream_prints_output_lines(
@@ -130,6 +134,27 @@ def test_wait_streams_output_before_the_unit_name(
     _following(monkeypatch, ["hello"])
     assert anyio.run(run_cmd.cmd_run, None, _run_args()) == 0
     assert capsys.readouterr().out.splitlines() == ["hello", "job.service"]
+
+
+def test_detached_run_hints_at_logs_and_wait(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    _finishing(monkeypatch)
+    _following(monkeypatch, ["hello"])
+    assert anyio.run(run_cmd.cmd_run, None, _run_args(wait=False)) == 0
+    captured = capsys.readouterr()
+    assert captured.out == "job.service\n"
+    assert "pystemctl logs job.service" in captured.err
+    assert "pystemctl wait job.service" in captured.err
+
+
+def test_json_run_stays_quiet(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    _finishing(monkeypatch)
+    _following(monkeypatch, ["hello"])
+    assert anyio.run(run_cmd.cmd_run, None, _run_args(wait=False, json=True)) == 0
+    assert capsys.readouterr().err == ""
 
 
 def test_wait_json_stays_a_single_payload(

@@ -177,6 +177,12 @@ async def cmd_run(bus: Bus, args: argparse.Namespace) -> int:
         print(f"pystemctl: start job for {name} ended in state {job_state}", file=sys.stderr)
         return 1
     if not args.wait:
+        if not args.json:
+            print(
+                f"pystemctl: see it with pystemctl logs {name}, "
+                f"or pystemctl wait {name}",
+                file=sys.stderr,
+            )
         return 0
     emit(args, name, payload)
     if props.get("Result") == "exit-code":
