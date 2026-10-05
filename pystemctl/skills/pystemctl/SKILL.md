@@ -109,7 +109,8 @@ pyjournalctl --since '-1h' -p err --json
 
 Shared log flags: `-n/--lines N`, `--since`, `--until`, `-p/--priority LEVEL`,
 `-b/--boot [ID]`, `-o/--output short|short-iso|short-precise|short-full|cat|json|json-pretty|verbose`,
-`-f/--follow`.
+`-f/--follow`. Without `-n`, the last 10 lines replay (all of them with
+`--since` and no `--follow`).
 
 ## Profiles
 
