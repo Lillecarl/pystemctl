@@ -328,7 +328,7 @@ def build_parser() -> argparse.ArgumentParser:
         help="start with an empty environment instead of inheriting the caller's",
     )
     run.add_argument("--property", "-P", action="append", default=[], metavar="NAME=VALUE")
-    run.add_argument("--type", default="simple", choices=["simple", "exec", "oneshot", "idle"])
+    run.add_argument("--type", default=None, choices=["simple", "exec", "oneshot", "idle"])
     run.add_argument("--remain-after-exit", action="store_true")
     collect = run.add_mutually_exclusive_group()
     collect.add_argument(

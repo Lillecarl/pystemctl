@@ -107,7 +107,7 @@ class RunArgs(BaseArgs):
     setenv: list[str] = field(default_factory=list)
     clean: bool = False
     property: list[str] = field(default_factory=list)
-    type: str = "simple"
+    type: str | None = None
     remain_after_exit: bool = False
     collect: bool | None = None
     replace: bool = False

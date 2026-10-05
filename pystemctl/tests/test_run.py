@@ -9,6 +9,7 @@ import anyio
 import pytest
 from conftest import BUS
 
+from pystemctl import profiles
 from pystemctl.bus import Scope
 from pystemctl.cli import helpers
 from pystemctl.cli.args import RunArgs
@@ -44,13 +45,15 @@ def _run_args(
     json: bool = False,
     shell: bool = False,
     command: Sequence[str] | None = None,
+    type: str | None = None,
+    profile: str | None = None,
 ) -> RunArgs:
     return RunArgs(
         command=list(command) if command is not None else ["echo", "hi"],
         shell=shell,
         setenv=[],
         property=[],
-        type="simple",
+        type=type,
         description=None,
         working_directory=None,
         tags=[],
@@ -59,7 +62,7 @@ def _run_args(
         runtime_max=None,
         remain_after_exit=False,
         collect=None,
-        profile=None,
+        profile=profile,
         unit="job.service",
         replace=False,
         no_block=False,
@@ -188,3 +191,35 @@ def test_detached_json_run_reports_the_shared_keys(
     assert payload["active_state"] == "active"
     assert "exit_status" in payload
     assert "main_status" not in payload
+
+
+def test_unit_type_prefers_cli_then_profile_then_simple(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    seen: list[Any] = []
+
+    async def start(bus: object, spec: Any, mode: str = "fail") -> str:
+        seen.append(spec)
+        return "job"
+
+    async def started(bus: object, job: str) -> str:
+        return "done"
+
+    async def current(bus: object, name: str) -> dict[str, object]:
+        return {"ActiveState": "active"}
+
+    monkeypatch.setattr(run_cmd.sd, "start_transient", start)
+    monkeypatch.setattr(run_cmd.sd, "wait_job", started)
+    monkeypatch.setattr(run_cmd.sd, "try_unit_properties", current)
+    monkeypatch.setattr(
+        run_cmd.profiles,
+        "load_profiles",
+        lambda: {"p": profiles.Profile(name="p", unit_type="oneshot")},
+    )
+
+    assert anyio.run(run_cmd.cmd_run, BUS, _run_args(wait=False, profile="p")) == 0
+    assert seen[-1].unit_type == "oneshot"
+    assert anyio.run(run_cmd.cmd_run, BUS, _run_args(wait=False, profile="p", type="exec")) == 0
+    assert seen[-1].unit_type == "exec"
+    assert anyio.run(run_cmd.cmd_run, BUS, _run_args(wait=False)) == 0
+    assert seen[-1].unit_type == "simple"

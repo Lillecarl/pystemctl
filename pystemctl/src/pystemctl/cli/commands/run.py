@@ -80,7 +80,7 @@ async def cmd_run(bus: Bus, args: RunArgs) -> int:
         inherited = profiles.resolve_environment(profile)
         environment = {**inherited, **explicit}
         properties.update(profile.properties)
-        unit_type = unit_type or profile.unit_type or "simple"
+        unit_type = unit_type or profile.unit_type
         description = description or profile.description
         working_directory = profiles.resolve_working_directory(profile)
         tags = list(dict.fromkeys((*profile.tags, *tags)))
@@ -88,9 +88,12 @@ async def cmd_run(bus: Bus, args: RunArgs) -> int:
         nice = nice if nice is not None else profile.nice
         runtime_max = runtime_max if runtime_max is not None else profile.runtime_max_sec
         remain_after_exit = remain_after_exit or profile.remain_after_exit
+        unit_type = unit_type or profile.unit_type
         if collect is None:
             collect = profile.collect
 
+    # Explicit --type wins, then the profile, then the service default.
+    unit_type = unit_type or "simple"
     collect = profiles.choose_collect(collect, tags)
 
     properties.update(parse_property(item) for item in args.property)

@@ -49,13 +49,20 @@ def test_profile_from_table_rejects_unknown_key() -> None:
         profiles._profile_from_table("p", {"nope": 1}, Path("x"))
 
 
-def test_apply_cli_overrides_defaults_only_set_unit_type() -> None:
-    # The parser defaults --type to "simple", which is always truthy, so a
-    # plain parse still stamps the unit type while leaving the rest alone.
+def test_apply_cli_overrides_is_identity_without_flags() -> None:
     profile = profiles.Profile(name="p", nice=5)
-    updated = profiles.apply_cli_overrides(profile, RunArgs())
-    assert updated.nice == 5
-    assert updated.unit_type == "simple"
+    assert profiles.apply_cli_overrides(profile, RunArgs()) is profile
+
+
+def test_apply_cli_overrides_lets_a_profile_set_the_unit_type() -> None:
+    profile = profiles.Profile(name="p", unit_type="oneshot")
+    assert profiles.apply_cli_overrides(profile, RunArgs()).unit_type == "oneshot"
+
+
+def test_apply_cli_overrides_prefers_an_explicit_type() -> None:
+    profile = profiles.Profile(name="p", unit_type="oneshot")
+    updated = profiles.apply_cli_overrides(profile, RunArgs(type="exec"))
+    assert updated.unit_type == "exec"
 
 
 def test_choose_collect_tagged_job_is_kept() -> None:
