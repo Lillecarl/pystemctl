@@ -139,12 +139,17 @@ async def entries(
             entry = await anyio.to_thread.run_sync(reader.get_previous)
             if not entry:
                 break
+            # The scan runs newest-first, so entries past the bound come
+            # first: skip them without counting, then collect the last N at
+            # or before it. Filtering after the tail instead would keep the
+            # newest N and drop whatever falls past the bound -- usually all
+            # of them -- instead of the N the bound actually covers.
+            if until is not None and entry["__REALTIME_TIMESTAMP"] > until:
+                continue
             if skip_notices and is_manager_notice(entry):
                 continue
             buffered.append(entry)
         for entry in reversed(buffered):
-            if until is not None and entry["__REALTIME_TIMESTAMP"] > until:
-                continue
             cursor = entry.get("__CURSOR", cursor)
             yield entry
     else:

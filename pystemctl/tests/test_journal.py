@@ -139,3 +139,24 @@ def test_tailed_entries_skip_notices_on_request() -> None:
         "Stopped job.service.",
     ]
     assert anyio.run(partial(_collect, _TailedReader(list(log)), skip_notices=True)) == ["hello"]
+
+
+def test_tail_with_until_reads_back_from_the_bound() -> None:
+    """-n N --until T is the last N lines at or before T, not the last N."""
+    base = dt.datetime(2026, 9, 30, 12, 0, 0, tzinfo=dt.UTC)
+    log: list[dict[str, Any]] = [
+        {"MESSAGE": f"line{i}", "__REALTIME_TIMESTAMP": base + dt.timedelta(minutes=i)}
+        for i in range(5)
+    ]
+
+    async def _tail(tail: int, until: dt.datetime) -> list[str]:
+        return [
+            str(entry["MESSAGE"])
+            async for entry in entries(_TailedReader(list(log)), tail=tail, until=until)
+        ]
+
+    bound = base + dt.timedelta(minutes=2)
+    assert anyio.run(partial(_tail, 2, bound)) == ["line1", "line2"]
+    # The old shape collected the newest two and dropped both past the
+    # bound, printing nothing; the bound now scopes the collection.
+    assert anyio.run(partial(_tail, 10, bound)) == ["line0", "line1", "line2"]
