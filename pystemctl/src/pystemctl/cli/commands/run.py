@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import shlex
 import shutil
 import sys
 from typing import Any
@@ -73,7 +74,7 @@ async def cmd_run(bus: Bus, args: argparse.Namespace) -> int:
     profile = _load_profile(args)
 
     if args.shell:
-        argv = [shutil.which("sh") or "/bin/sh", "-c", " ".join(command)]
+        argv = [shutil.which("sh") or "/bin/sh", "-c", shlex.join(command)]
     else:
         argv = command
 

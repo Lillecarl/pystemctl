@@ -4,6 +4,7 @@ import argparse
 import json
 import os
 from collections.abc import AsyncIterator, Sequence
+from typing import Any
 
 import anyio
 import pytest
@@ -166,3 +167,27 @@ def test_wait_json_stays_a_single_payload(
     out = capsys.readouterr().out
     assert "hello" not in out
     assert json.loads(out)["unit"] == "job.service"
+
+
+def test_shell_quotes_arguments(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    seen: list[Any] = []
+
+    async def start(bus: object, spec: Any, mode: str = "fail") -> str:
+        seen.append(spec)
+        return "job"
+
+    async def started(bus: object, job: str) -> str:
+        return "done"
+
+    async def current(bus: object, name: str) -> dict[str, object]:
+        return {"ActiveState": "active"}
+
+    monkeypatch.setattr(run_cmd.sd, "start_transient", start)
+    monkeypatch.setattr(run_cmd.sd, "wait_job", started)
+    monkeypatch.setattr(run_cmd.sd, "try_unit_properties", current)
+    args = _run_args(wait=False, shell=True, command=["echo", "a  b"])
+    assert anyio.run(run_cmd.cmd_run, None, args) == 0
+    assert seen[0].argv[2] == "echo 'a  b'"
+    capsys.readouterr()
