@@ -17,7 +17,8 @@ from .. import systemd as sd
 from ..bus import Bus, Scope
 from ..errors import PystemctlError, UnitNotFoundError
 from ..systemd import Unit
-from ..systemd.tags import SESSION_ENV, session_id
+from ..systemd.tags import read_tags, session_id
+from ..systemd.units import environment_of
 
 
 async def _collected_fallback(
@@ -256,12 +257,8 @@ async def has_journal_trace(name: str, scope: Scope) -> bool:
 
 def unit_session(props: dict[str, Any]) -> str | None:
     """The agent session a unit was started from, if it recorded one."""
-    environment = props.get("Environment") or []
-    for item in environment:
-        key, separator, value = item.partition("=")
-        if separator and key == SESSION_ENV and value:
-            return value
-    return None
+    _tags, session = read_tags(environment_of(props))
+    return session
 
 
 def note_foreign_session(name: str, props: dict[str, Any]) -> None:

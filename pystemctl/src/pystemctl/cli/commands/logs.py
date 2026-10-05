@@ -4,13 +4,12 @@ from __future__ import annotations
 
 import argparse
 import sys
-from collections.abc import Sequence
 
 from ... import journal as jr
 from ... import systemd as sd
 from ...bus import Bus, Scope
 from ...errors import UnitNotFoundError
-from ..helpers import has_journal_trace, resolve_units, tail_count
+from ..helpers import has_journal_trace, resolve_units, tail_count, unit_groups
 
 
 async def cmd_logs(bus: Bus, args: argparse.Namespace) -> int:
@@ -60,12 +59,6 @@ async def _drop_unknown(bus: Bus, args: argparse.Namespace, units: list[str]) ->
                 continue
         kept.append(name)
     return kept
-
-
-def unit_groups(units: Sequence[str], scope: Scope) -> tuple[list[str], list[str]]:
-    if scope is Scope.SYSTEM:
-        return list(units), []
-    return [], list(units)
 
 
 async def journal_tail(unit: str, lines: int, scope: Scope) -> list[str]:
