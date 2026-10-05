@@ -41,16 +41,14 @@ async def cmd_jobs(bus: Bus, args: argparse.Namespace) -> int:
 
         return await _follow(visible, args)
 
-    foreign = 0
-    jobs, hidden = _visible(await snapshot(session), args)
-    foreign += hidden
+    jobs, foreign = _visible(await snapshot(session), args)
     if not jobs and session is not None:
         # A job started from another session — a shell, or an earlier agent
         # session — filters out of the scoped answer. Retry unscoped rather
         # than report nothing, the way resolve() already does when it targets
-        # a unit by tag.
-        jobs, hidden = _visible(await snapshot(None), args)
-        foreign += hidden
+        # a unit by tag. The retry sees a superset of the scoped answer, so
+        # its hidden count replaces the scoped one instead of adding to it.
+        jobs, foreign = _visible(await snapshot(None), args)
         if jobs:
             print(
                 "pystemctl: no jobs in this session; showing jobs from every session",

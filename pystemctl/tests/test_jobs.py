@@ -197,10 +197,35 @@ def test_jobs_all_transient_shows_everything(
 def test_jobs_names_hidden_foreign_units(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    _collecting(monkeypatch, {"s1": [_job(name="other.service")]})
+    # A session-less unit never survives the scoped query; the unscoped
+    # retry is where the hidden count comes from.
+    _collecting(monkeypatch, {"s1": [], None: [_job(name="other.service")]})
     code = anyio.run(jobs_cmd.cmd_jobs, BUS, _cmd_args(session="s1"))
     assert code == 1
     captured = capsys.readouterr()
     assert captured.out == ""
     assert "hiding 1 transient unit" in captured.err
     assert "--all-transient" in captured.err
+
+
+def test_jobs_any_session_counts_hidden_once(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Without a session there is no retry; the one query's count stands."""
+    _collecting(monkeypatch, {None: [_job(name="other.service")]})
+    code = anyio.run(jobs_cmd.cmd_jobs, BUS, _cmd_args(any_session=True))
+    assert code == 1
+    assert "hiding 1 transient unit" in capsys.readouterr().err
+
+
+def test_jobs_fallback_reports_unscoped_hidden_count(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The retry's wider view replaces the scoped count instead of adding."""
+    _collecting(
+        monkeypatch,
+        {"s1": [], None: [_job(name="a.service"), _job(name="b.service")]},
+    )
+    code = anyio.run(jobs_cmd.cmd_jobs, BUS, _cmd_args(session="s1"))
+    assert code == 1
+    assert "hiding 2 transient units" in capsys.readouterr().err
