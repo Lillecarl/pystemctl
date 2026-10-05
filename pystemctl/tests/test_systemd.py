@@ -1,6 +1,11 @@
 from __future__ import annotations
 
-from pystemctl.systemd import generate_unit_name, normalize_unit_name
+from typing import Any
+
+import anyio
+from jeepney.wrappers import DBusErrorResponse
+
+from pystemctl.systemd import generate_unit_name, normalize_unit_name, unit_active_state
 
 
 def test_normalize_appends_service() -> None:
@@ -26,3 +31,18 @@ def test_generate_unit_name_sanitizes() -> None:
 
 def test_generate_unit_name_is_unique() -> None:
     assert generate_unit_name(["sleep"]) != generate_unit_name(["sleep"])
+
+
+class _NoSuchUnit(DBusErrorResponse):
+    def __init__(self) -> None:
+        self.name = "org.freedesktop.systemd1.NoSuchUnit"
+        self.data = ()
+
+
+class _MissingBus:
+    async def manager(self, *args: Any, **kwargs: Any) -> Any:
+        raise _NoSuchUnit()
+
+
+def test_unit_active_state_reports_unknown_when_missing() -> None:
+    assert anyio.run(unit_active_state, _MissingBus(), "nope.service") == "unknown"

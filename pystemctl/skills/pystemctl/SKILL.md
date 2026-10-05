@@ -154,3 +154,6 @@ resolves it at completion time.
 - A collected unit loses its exit status. Keep `--no-collect` or a `--tag`
   when a later `wait` / `tail` / `jobs` lookup needs the result.
 - Prefer `--json` plus `show -P` when scripting over `status` text.
+- Shell completion (bash, zsh, fish) completes subcommands, unit names
+  from the running manager, and profile names. A failed manager lookup
+  completes nothing rather than erroring.

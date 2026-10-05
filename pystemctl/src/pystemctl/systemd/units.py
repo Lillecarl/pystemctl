@@ -119,7 +119,7 @@ async def unit_active_state(bus: Bus, name: str) -> str:
         path = (await bus.manager("GetUnit", "s", (name,)))[0]
     except DBusErrorResponse as error:
         if "NoSuchUnit" in (error.name or ""):
-            return "inactive"
+            return "unknown"
         raise
     return await bus.get_property(path, UNIT_INTERFACE, "ActiveState")
 

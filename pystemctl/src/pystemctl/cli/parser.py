@@ -21,17 +21,47 @@ def _profile_completer(**_: object) -> list[str]:
         return []
 
 
+def _unit_completer(prefix: str = "", parsed_args: object = None, **_: object) -> list[str]:
+    """Unit names from the relevant service manager.
+
+    Completion must never fail loudly: anything wrong means no suggestions.
+    """
+    try:
+        import anyio
+
+        from ..bus import Scope, connect
+        from ..systemd.units import list_units
+
+        scope = getattr(parsed_args, "scope", None) or Scope.USER
+
+        async def names() -> list[str]:
+            async with connect(scope) as bus:
+                return [unit.name for unit in await list_units(bus)]
+
+        return [name for name in anyio.run(names) if name.startswith(prefix)]
+    except Exception:
+        return []
+
+
 def register_completers(parser: argparse.ArgumentParser) -> None:
     """Attach value completers that argcomplete resolves at completion time."""
-    completers = {"profile": _profile_completer}
+    completers = {
+        "profile": _profile_completer,
+        "name": _profile_completer,
+        "units": _unit_completer,
+        "unit": _unit_completer,
+        "system_units": _unit_completer,
+        "user_units": _unit_completer,
+    }
+    parsers = [parser]
     for action in parser._actions:
-        if not isinstance(action, argparse._SubParsersAction):
-            continue
-        for subparser in action.choices.values():
-            for subaction in subparser._actions:
-                completer = completers.get(subaction.dest)
-                if completer is not None:
-                    subaction.completer = completer
+        if isinstance(action, argparse._SubParsersAction):
+            parsers.extend(action.choices.values())
+    for target in parsers:
+        for subaction in target._actions:
+            completer = completers.get(subaction.dest)
+            if completer is not None:
+                subaction.completer = completer
 
 
 def build_parser() -> argparse.ArgumentParser:
