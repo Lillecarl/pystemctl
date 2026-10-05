@@ -38,6 +38,10 @@ buildPythonPackage rec {
       register-python-argcomplete = lib.getExe' argcomplete "register-python-argcomplete";
     in
     ''
+      # Installed by hand: the pinned nixpkgs predates the installAgentSkills
+      # hook (NixOS/nixpkgs#558216). The layout is the one that hook
+      # standardizes (NixOS/nixpkgs#547426: share/skills/$pname/<skill>),
+      # so the switch is one line when the pin catches up.
       install -Dm444 ${./skills/pystemctl/SKILL.md} \
         $out/share/skills/pystemctl/pystemctl/SKILL.md
     ''
