@@ -8,10 +8,10 @@ from typing import Any
 
 from jeepney.wrappers import DBusErrorResponse
 
-from ..bus import UNIT_INTERFACE, Bus
+from ..bus import Bus
 from ..errors import PystemctlError
 from .tags import read_tags, session_id
-from .units import Unit, environment_of, list_units, unit_interface
+from .units import Unit, describe_unit, environment_of, list_units
 
 
 @dataclass(slots=True)
@@ -111,13 +111,9 @@ async def _job_for_unit(
     answering. That is a job that went away, not an error: it returns None.
     """
     try:
-        props = await bus.get_all(unit.path, UNIT_INTERFACE)
+        props = await describe_unit(bus, unit.path, unit.name)
         if not props.get("Transient"):
             return None
-        # Environment lives on the unit-type interface (.service), not Unit.
-        interface = unit_interface(unit.name)
-        if interface is not None:
-            props.update(await bus.get_all(unit.path, interface))
     except DBusErrorResponse:
         return None
     environment = environment_of(props)

@@ -3,16 +3,14 @@
 from __future__ import annotations
 
 import contextlib
-import time
 from typing import Any
 
 import anyio
-from jeepney import MatchRule
 from jeepney.wrappers import DBusErrorResponse
 
-from ..bus import JOB_INTERFACE, SYSTEMD_BUS_NAME, UNIT_INTERFACE, Bus
+from ..bus import JOB_INTERFACE, Bus, PropertiesStream, watch_properties, watch_removals
 from ..errors import is_no_such_unit
-from .units import load_unit_path, unit_interface
+from .units import describe_unit, load_unit_path
 
 _TERMINAL_JOB_STATES = frozenset({"done", "canceled", "failed", "timeout"})
 _FINISHED_STATES = frozenset({"inactive", "failed"})
@@ -61,17 +59,39 @@ async def disable_unit(bus: Bus, name: str) -> list[tuple[str, str, str]]:
 
 
 async def wait_job(bus: Bus, job_path: str, timeout: float = 30.0) -> str:
-    deadline = time.monotonic() + timeout
-    while True:
+    """Wait for the job at *job_path* to leave the queue.
+
+    Driven by the manager's JobRemoved signal, which carries the result,
+    so a finished job resolves at once instead of on the next poll. The
+    state is read once before subscribing and once after, so a removal
+    racing the subscription still resolves instead of hanging to the
+    timeout. A result outside the known terminal states means the start
+    did not happen, which reads as failed.
+    """
+
+    async def state() -> str | None:
         try:
-            state = await bus.get_property(job_path, JOB_INTERFACE, "State")
+            return await bus.get_property(job_path, JOB_INTERFACE, "State")
         except DBusErrorResponse:
+            return None
+
+    if (current := await state()) is None:
+        return "done"
+    if current in _TERMINAL_JOB_STATES:
+        return current
+    async with watch_removals(bus) as removals:
+        if (current := await state()) is None:
             return "done"
-        if state in _TERMINAL_JOB_STATES:
-            return state
-        if time.monotonic() >= deadline:
-            return "timeout"
-        await anyio.sleep(0.1)
+        if current in _TERMINAL_JOB_STATES:
+            return current
+        with anyio.move_on_after(timeout):
+            async for removed in removals:
+                if removed.job != job_path:
+                    continue
+                if removed.result in _TERMINAL_JOB_STATES:
+                    return removed.result
+                return "failed"
+        return "timeout"
 
 
 def unit_finished(props: dict[str, Any]) -> bool:
@@ -104,37 +124,27 @@ async def wait_until_finished(bus: Bus, name: str, timeout: float | None = None)
     poll is the fallback for a signal that does not arrive.
     """
     path = await load_unit_path(bus, name)
-    properties_rule = MatchRule(
-        type="signal",
-        sender=SYSTEMD_BUS_NAME,
-        path=path,
-        interface="org.freedesktop.DBus.Properties",
-        member="PropertiesChanged",
-    )
-    await bus.add_match(properties_rule)
 
     async def snapshot() -> dict[str, Any]:
-        props = await bus.get_all(path, UNIT_INTERFACE)
-        interface = unit_interface(name)
-        if interface is not None:
-            props.update(await bus.get_all(path, interface))
-        return props
+        return await describe_unit(bus, path, name)
 
     outcome: dict[str, Any] = {}
 
-    async def watch_state(properties: Any, group: anyio.abc.TaskGroup) -> None:
+    async def watch_state(stream: PropertiesStream, group: anyio.abc.TaskGroup) -> None:
         while True:
-            received: Any = None
+            update: dict[str, Any] | None = None
             with anyio.move_on_after(1.0):
-                received = await properties.get()
-            if received is not None:
+                # Pulled directly, one update per poll window: a class-based
+                # iterator survives the timeout's cancellation, where a
+                # generator would close and silently stop delivering.
+                update = await stream.__anext__()
+            if update is not None:
                 # The signal body carries the values as they were at the moment
                 # of the change. Reading them here avoids racing the reset that
                 # follows the stop, which a fresh GetAll would lose.
-                _signature, changed, _invalidated = received.body
                 for key in _INTERESTING:
-                    if key in changed:
-                        outcome.setdefault("changes", {})[key] = changed[key][1]
+                    if key in update:
+                        outcome.setdefault("changes", {})[key] = update[key]
             try:
                 props = await snapshot()
             except DBusErrorResponse:
@@ -147,9 +157,9 @@ async def wait_until_finished(bus: Bus, name: str, timeout: float | None = None)
 
     async def wait() -> dict[str, Any]:
         outcome.clear()
-        with bus.filter(properties_rule) as properties:
+        async with watch_properties(bus, path) as stream:
             async with anyio.create_task_group() as group:
-                group.start_soon(watch_state, properties, group)
+                group.start_soon(watch_state, stream, group)
         props = outcome.get("props") or {}
         changes = outcome.get("changes") or {}
         return {**props, **changes}

@@ -30,6 +30,7 @@ from .transient import (
 )
 from .units import (
     Unit,
+    describe_unit,
     get_unit_file_state,
     is_transient,
     list_unit_files,
@@ -48,6 +49,7 @@ __all__ = [
     "Unit",
     "build_transient_properties",
     "collect_jobs",
+    "describe_unit",
     "disable_unit",
     "enable_unit",
     "generate_unit_name",

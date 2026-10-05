@@ -11,9 +11,9 @@ import os
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from enum import StrEnum
-from typing import Any
+from typing import Any, NamedTuple
 
-from jeepney import DBusAddress, new_method_call
+from jeepney import DBusAddress, MatchRule, new_method_call
 from jeepney.bus_messages import message_bus
 from jeepney.io.asyncio import DBusRouter, open_dbus_router
 from jeepney.wrappers import unwrap_msg
@@ -94,6 +94,79 @@ class Bus:
 
     def filter(self, rule: Any, *, queue: Any = None) -> Any:
         return self._router.filter(rule, queue=queue)
+
+
+class PropertiesStream:
+    """An async iterator of PropertiesChanged payloads for one unit path.
+
+    A class rather than a generator on purpose: timing out a ``queue.get``
+    closes a generator, silently turning the stream into a poll loop, while
+    a fresh ``__anext__`` here simply awaits again.
+    """
+
+    def __init__(self, queue: Any) -> None:
+        self._queue = queue
+
+    def __aiter__(self) -> PropertiesStream:
+        return self
+
+    async def __anext__(self) -> dict[str, Any]:
+        message = await self._queue.get()
+        _signature, changed, _invalidated = message.body
+        return {key: value[1] for key, value in changed.items()}
+
+
+class JobRemoval(NamedTuple):
+    """A JobRemoved signal: the finished job's id, path, unit, and result."""
+
+    id: int
+    job: str
+    unit: str
+    result: str
+
+
+class RemovalStream:
+    """An async iterator of the manager's JobRemoved signals."""
+
+    def __init__(self, queue: Any) -> None:
+        self._queue = queue
+
+    def __aiter__(self) -> RemovalStream:
+        return self
+
+    async def __anext__(self) -> JobRemoval:
+        message = await self._queue.get()
+        return JobRemoval(*message.body)
+
+
+@asynccontextmanager
+async def watch_properties(bus: Bus, path: str) -> AsyncIterator[PropertiesStream]:
+    """Stream the PropertiesChanged signals for the unit at *path*."""
+    rule = MatchRule(
+        type="signal",
+        sender=SYSTEMD_BUS_NAME,
+        path=path,
+        interface=PROPERTIES_INTERFACE,
+        member="PropertiesChanged",
+    )
+    await bus.add_match(rule)
+    with bus.filter(rule) as queue:
+        yield PropertiesStream(queue)
+
+
+@asynccontextmanager
+async def watch_removals(bus: Bus) -> AsyncIterator[RemovalStream]:
+    """Stream the manager's JobRemoved signals."""
+    rule = MatchRule(
+        type="signal",
+        sender=SYSTEMD_BUS_NAME,
+        path=SYSTEMD_PATH,
+        interface=MANAGER_INTERFACE,
+        member="JobRemoved",
+    )
+    await bus.add_match(rule)
+    with bus.filter(rule) as queue:
+        yield RemovalStream(queue)
 
 
 @asynccontextmanager

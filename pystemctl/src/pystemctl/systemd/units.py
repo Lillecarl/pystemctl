@@ -98,13 +98,17 @@ async def load_unit_path(bus: Bus, name: str) -> str:
         raise UnitNotFoundError(name) from error
 
 
-async def unit_properties(bus: Bus, name: str) -> dict[str, Any]:
-    path = await load_unit_path(bus, name)
+async def describe_unit(bus: Bus, path: str, name: str) -> dict[str, Any]:
+    """Every property of the unit at *path*, from Unit and its type interface."""
     props = await bus.get_all(path, UNIT_INTERFACE)
     interface = unit_interface(name)
     if interface is not None:
         props.update(await bus.get_all(path, interface))
     return props
+
+
+async def unit_properties(bus: Bus, name: str) -> dict[str, Any]:
+    return await describe_unit(bus, await load_unit_path(bus, name), name)
 
 
 async def try_unit_properties(bus: Bus, name: str) -> dict[str, Any]:
