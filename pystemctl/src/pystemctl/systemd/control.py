@@ -74,7 +74,12 @@ async def wait_job(bus: Bus, job_path: str, timeout: float = 30.0) -> str:
 
 
 def unit_finished(props: dict[str, Any]) -> bool:
-    if props.get("ActiveState") not in _FINISHED_STATES:
+    state = props.get("ActiveState")
+    # A oneshot with RemainAfterExit=yes parks in active/exited once its
+    # process is gone: nothing will ever run again, so it counts as finished
+    # even though systemd still calls it active.
+    parked = state == "active" and props.get("SubState") == "exited"
+    if state not in _FINISHED_STATES and not parked:
         return False
     job = props.get("Job")
     if isinstance(job, (tuple, list)) and job and job[0]:
@@ -88,7 +93,10 @@ def unit_finished(props: dict[str, Any]) -> bool:
 
 
 async def wait_until_finished(bus: Bus, name: str, timeout: float | None = None) -> dict[str, Any]:
-    """Wait until *name* is inactive or failed and has no job left.
+    """Wait until *name* has stopped and has no job left.
+
+    A oneshot parked by RemainAfterExit counts as stopped: its process is
+    gone and only the remembered result remains.
 
     The unit may be collected the moment it stops, so the state is read while
     a ``PropertiesChanged`` signal still guarantees it exists; a one second

@@ -2,11 +2,13 @@ from __future__ import annotations
 
 import argparse
 import json
+from typing import cast
 
 import anyio
 import pytest
 from conftest import BUS, as_task_group
 
+from pystemctl.bus import Bus
 from pystemctl.cli.commands import wait as wait_cmd
 from pystemctl.cli.commands.wait import _report, _report_timeout
 from pystemctl.cli.helpers import WatchOutcome
@@ -124,3 +126,101 @@ def test_pattern_watch_sees_manager_notices(monkeypatch: pytest.MonkeyPatch) -> 
         as_task_group(_Group()),
     )
     assert seen["skip_notices"] is False
+
+
+@pytest.mark.parametrize(
+    ("props", "expected"),
+    [
+        ({"ActiveState": "inactive", "Type": "service", "Result": "success"}, True),
+        ({"ActiveState": "failed", "Type": "service", "Result": "exit-code"}, True),
+        # A oneshot parked by RemainAfterExit is finished: its process is
+        # gone and only the remembered result remains.
+        (
+            {
+                "ActiveState": "active",
+                "SubState": "exited",
+                "Type": "service",
+                "Result": "success",
+                "ExecMainStatus": 0,
+            },
+            True,
+        ),
+        # Still running is not finished, whatever the substate claims.
+        ({"ActiveState": "active", "SubState": "running", "Type": "service"}, False),
+        # Parked but result not yet reported: the exit code is still unknown.
+        ({"ActiveState": "active", "SubState": "exited", "Type": "service"}, False),
+        # A queued job means a transition is still in flight.
+        (
+            {
+                "ActiveState": "inactive",
+                "Type": "service",
+                "Result": "success",
+                "Job": (1, "/org/freedesktop/systemd1/job/1"),
+            },
+            False,
+        ),
+    ],
+)
+def test_unit_finished_recognises_parked_oneshots(props: dict[str, object], expected: bool) -> None:
+    assert wait_cmd.sd.unit_finished(props) == expected
+
+
+class _ParkedMessage:
+    body = ("", {}, [])
+
+
+class _ParkedQueue:
+    async def get(self) -> _ParkedMessage:
+        return _ParkedMessage()
+
+
+class _ParkedFilter:
+    def __init__(self, queue: _ParkedQueue) -> None:
+        self._queue = queue
+
+    def __enter__(self) -> _ParkedQueue:
+        return self._queue
+
+    def __exit__(self, *exc: object) -> None:
+        return None
+
+
+class _ParkedBus:
+    """A bus whose unit is already parked in active/exited."""
+
+    def __init__(self, props: dict[str, object]) -> None:
+        self._props = props
+
+    async def manager(
+        self, method: object, signature: object = None, body: object = ()
+    ) -> tuple[str]:
+        return ("/org/freedesktop/systemd1/unit/x",)
+
+    async def add_match(self, rule: object) -> None:
+        pass
+
+    def filter(self, rule: object, *, queue: object = None) -> _ParkedFilter:
+        return _ParkedFilter(_ParkedQueue())
+
+    async def get_all(self, path: str, interface: str) -> dict[str, object]:
+        return dict(self._props)
+
+
+def test_wait_until_finished_returns_parked_result() -> None:
+    """An already-parked unit resolves at once instead of hanging."""
+    parked: dict[str, object] = {
+        "ActiveState": "active",
+        "SubState": "exited",
+        "Type": "service",
+        "Result": "exit-code",
+        "ExecMainStatus": 3,
+    }
+    bus = cast(Bus, _ParkedBus(parked))
+
+    async def _wait_soon() -> dict[str, object]:
+        with anyio.fail_after(5):
+            return await wait_cmd.sd.wait_until_finished(bus, "x.service", None)
+
+    props = anyio.run(_wait_soon)
+    assert props["Result"] == "exit-code"
+    assert props["ExecMainStatus"] == 3
