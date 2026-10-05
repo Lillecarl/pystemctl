@@ -1,5 +1,12 @@
 from __future__ import annotations
 
+import argparse
+from collections.abc import Sequence
+
+import anyio
+import pytest
+
+from pystemctl.cli.commands import jobs as jobs_cmd
 from pystemctl.systemd.jobs import Job
 from pystemctl.systemd.units import Unit
 
@@ -76,3 +83,76 @@ def test_exit_status_only_for_exit_code_result() -> None:
     )
     assert job.result == "timeout"
     assert job.exit_status is None
+
+
+def _cmd_args(**overrides: object) -> argparse.Namespace:
+    values: dict[str, object] = {
+        "any_session": False,
+        "session": None,
+        "tags": [],
+        "all": True,
+        "follow": False,
+        "json": False,
+    }
+    values.update(overrides)
+    return argparse.Namespace(**values)
+
+
+def _collecting(
+    monkeypatch: pytest.MonkeyPatch, found: dict[str | None, list[Job]]
+) -> list[str | None]:
+    """Stand in for collect_jobs; records the sessions it was asked for."""
+    seen: list[str | None] = []
+
+    async def fake(
+        bus: object,
+        *,
+        required_tags: Sequence[str],
+        session: str | None,
+        include_inactive: bool,
+    ) -> list[Job]:
+        seen.append(session)
+        return found.get(session, [])
+
+    monkeypatch.setattr(jobs_cmd.sd, "collect_jobs", fake)
+    return seen
+
+
+def test_jobs_falls_back_to_any_session(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    seen = _collecting(monkeypatch, {None: [_job()]})
+    code = anyio.run(jobs_cmd.cmd_jobs, None, _cmd_args(session="s1"))
+    assert code == 0
+    assert seen == ["s1", None]
+    assert "job.service" in capsys.readouterr().out
+
+
+def test_jobs_skips_fallback_when_scoped_finds_jobs(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    seen = _collecting(monkeypatch, {"s1": [_job()], None: [_job()]})
+    code = anyio.run(jobs_cmd.cmd_jobs, None, _cmd_args(session="s1"))
+    assert code == 0
+    assert seen == ["s1"]
+    capsys.readouterr()
+
+
+def test_jobs_reports_nothing_found(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    seen = _collecting(monkeypatch, {})
+    code = anyio.run(jobs_cmd.cmd_jobs, None, _cmd_args(session="s1"))
+    assert code == 1
+    assert seen == ["s1", None]
+    assert capsys.readouterr().out == ""
+
+
+def test_jobs_any_session_queries_once(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    seen = _collecting(monkeypatch, {None: [_job()]})
+    code = anyio.run(jobs_cmd.cmd_jobs, None, _cmd_args(any_session=True))
+    assert code == 0
+    assert seen == [None]
+    capsys.readouterr()

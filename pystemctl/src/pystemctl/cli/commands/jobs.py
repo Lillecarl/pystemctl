@@ -24,18 +24,24 @@ POLL_INTERVAL = 1.0
 async def cmd_jobs(bus: Bus, args: argparse.Namespace) -> int:
     session = None if args.any_session else (args.session or session_id())
 
-    async def snapshot() -> list[Job]:
+    async def snapshot(current: str | None) -> list[Job]:
         return await sd.collect_jobs(
             bus,
             required_tags=args.tags,
-            session=session,
+            session=current,
             include_inactive=args.all,
         )
 
     if args.follow:
-        return await _follow(snapshot, args)
+        return await _follow(lambda: snapshot(session), args)
 
-    jobs = await snapshot()
+    jobs = await snapshot(session)
+    if not jobs and session is not None:
+        # A job started from another session — a shell, or an earlier agent
+        # session — filters out of the scoped answer. Retry unscoped rather
+        # than report nothing, the way resolve() already does when it targets
+        # a unit by tag.
+        jobs = await snapshot(None)
 
     if args.json:
         print(json.dumps([_job_payload(job) for job in jobs]))

@@ -67,8 +67,23 @@ skip logs.
 session. `wait` blocks until a unit finishes or a log line matches. `tail`
 follows output until the unit stops or a line matches.
 
+The long-run loop: start tagged, wait in bounded chunks, then read the logs.
+`run` prints the unit name; keep it for `logs` and `status`.
+
 ```sh
-pystemctl jobs --tag deploy
+pystemctl run --tag deploy -- ./build.sh   # prints pystemctl-build-xxxx.service
+pystemctl wait --tag deploy --timeout 300  # repeat until the unit stops
+pystemctl jobs --tag deploy                # same agent session
+pystemctl logs pystemctl-build-xxxx.service -n 100
+```
+
+Sessions: `run` stamps the invoking agent session on the job. `jobs` lists
+that session by default and falls back to every session when the scoped
+answer is empty. `--any-session` skips the filter; `--session ID` selects
+one. `wait` / `tail` by tag resolve across sessions, newest match wins.
+
+```sh
+pystemctl jobs --tag deploy --any-session
 pystemctl jobs --all --any-session
 pystemctl jobs --follow
 pystemctl wait myunit.service --timeout 30 --grep READY --lines 200
