@@ -15,9 +15,7 @@ from typing import Any
 
 from jeepney.wrappers import DBusErrorResponse
 
-from ..bus import Bus
-from ..errors import PystemctlError
-from .tags import SESSION_ENV, TAGS_ENV, tags_to_environment
+from .tags import SESSION_ENV, TAG_FIELD, TAGS_ENV, tags_to_environment
 
 
 @dataclass(slots=True)
@@ -105,6 +103,13 @@ def build_transient_properties(spec: TransientSpec) -> list[tuple[str, tuple[str
         properties.append(("Slice", ("s", spec.slice_name)))
     if spec.pin:
         properties.append(("AddRef", ("b", True)))
+    journal_tags = [
+        f"{TAG_FIELD}={tag}".encode("utf-8")
+        for tag in spec.tags
+        if tag and "\n" not in tag and "\x00" not in tag
+    ]
+    if journal_tags:
+        properties.append(("LogExtraFields", ("aay", journal_tags)))
     properties.extend(spec.properties.items())
     return properties
 

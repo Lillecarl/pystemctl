@@ -15,6 +15,7 @@ from typing import TYPE_CHECKING, Any
 import anyio
 
 from ..errors import PystemctlError
+from ..systemd.tags import TAG_FIELD
 
 if TYPE_CHECKING:
     from systemd import journal
@@ -66,6 +67,8 @@ def open_reader(
     *,
     system_units: Sequence[str] = (),
     user_units: Sequence[str] = (),
+    tags: Sequence[str] = (),
+    uid: str | None = None,
     priority: int | None = None,
     boot: str | bool | None = None,
 ) -> "journal.Reader":
@@ -75,13 +78,43 @@ def open_reader(
         reader.log_level(priority)
     if boot is not None:
         reader.this_boot(None if boot is True else boot)
-    groups = unit_match_groups(system_units=system_units, user_units=user_units)
+    groups = unit_match_groups(system_units=system_units, user_units=user_units, uid=uid)
+    if tags:
+        groups.append([(TAG_FIELD, tag) for tag in tags])
     for index, group in enumerate(groups):
         if index:
             reader.add_disjunction()
         for field, value in group:
             reader.add_match(f"{field}={value}")
     return reader
+
+
+async def newest_unit_for_tags(
+    tags: Sequence[str], *, system: bool = False, scan: int = 1000
+) -> str | None:
+    """Name of the unit that most recently logged under every given tag.
+
+    A finished transient unit is unloaded, so the bus cannot resolve it; its
+    journal entries outlive it. Each entry carries one PYSTEMCTL_TAG field per
+    tag, and entries in one conjunction group must carry every tag.
+
+    The unit comes from the notice's subject, not its sender: the manager
+    logs from its own scope, naming the job in USER_UNIT (user) or UNIT
+    (system). The service's own lines name it in _SYSTEMD_USER_UNIT instead.
+    """
+    cleaned = [tag for tag in tags if tag]
+    if not cleaned:
+        return None
+    reader = open_reader(tags=cleaned)
+    found: str | None = None
+    async for entry in entries(reader, tail=scan):
+        if system:
+            name = entry.get("UNIT") or entry.get("_SYSTEMD_UNIT")
+        else:
+            name = entry.get("USER_UNIT") or entry.get("_SYSTEMD_USER_UNIT")
+        if name:
+            found = str(name)
+    return found
 
 
 async def entries(

@@ -16,6 +16,11 @@ TAGS_ENV: Final = "PYSTEMCTL_TAGS"
 SESSION_ENV: Final = "PYSTEMCTL_SESSION"
 RESERVED: Final = (TAGS_ENV, SESSION_ENV)
 
+# Journal field carrying one tag per entry, so a finished job stays findable
+# after the manager unloads its unit. The bus stays authoritative; the journal
+# is only a fallback for units that are already gone.
+TAG_FIELD: Final = "PYSTEMCTL_TAG"
+
 SESSION_ID_LENGTH: Final = 12
 
 

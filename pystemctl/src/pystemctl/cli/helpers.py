@@ -19,6 +19,31 @@ from ..errors import PystemctlError
 from ..systemd import Unit
 
 
+async def _collected_fallback(
+    args: argparse.Namespace, tags: Sequence[str], missing: PystemctlError
+) -> str:
+    """Name of a finished job from its journal entries, or re-raise.
+
+    The manager unloads a finished transient unit, so the bus cannot resolve
+    its tag anymore; the unit's own log lines outlive it and carry the tags.
+    A job that logged nothing leaves no trace, and then the original miss
+    stands: silence from the journal is not a unit.
+    """
+    name = None
+    try:
+        system = getattr(args, "scope", Scope.USER) is Scope.SYSTEM
+        name = await jr.newest_unit_for_tags(tags, system=system)
+    except PystemctlError:
+        name = None
+    if name is None:
+        raise missing
+    print(
+        f"pystemctl: {name} already finished and was collected; reading its journal",
+        file=sys.stderr,
+    )
+    return name
+
+
 async def resolve_target(bus: Bus, args: argparse.Namespace) -> str:
     """Return the unit the command should act on.
 
@@ -30,7 +55,12 @@ async def resolve_target(bus: Bus, args: argparse.Namespace) -> str:
     if not tags and getattr(args, "unit", None):
         return sd.normalize_unit_name(args.unit)
 
-    chosen, others = await sd.resolve(bus, tags=tags or ())
+    try:
+        chosen, others = await sd.resolve(bus, tags=tags or ())
+    except PystemctlError as missing:
+        if not tags:
+            raise
+        return await _collected_fallback(args, tags, missing)
     if chosen is None:
         raise PystemctlError("no unit or tag given")
     if others:
@@ -53,19 +83,23 @@ async def resolve_units(bus: Bus, args: argparse.Namespace) -> list[str]:
     units = [sd.normalize_unit_name(raw) for raw in getattr(args, "units", None) or []]
     tags = getattr(args, "tags", None) or []
     if tags:
-        chosen, others = await sd.resolve(
-            bus, tags=tags, session=getattr(args, "session", None)
-        )
-        if chosen is None:
-            raise PystemctlError("give a unit name or at least one --tag")
-        if others:
-            print(
-                f"pystemctl: {len(others) + 1} jobs match {', '.join(tags)}; "
-                f"using the newest, {chosen.name} "
-                f"(also: {', '.join(job.name for job in others)})",
-                file=sys.stderr,
+        try:
+            chosen, others = await sd.resolve(
+                bus, tags=tags, session=getattr(args, "session", None)
             )
-        units.append(chosen.name)
+        except PystemctlError as missing:
+            units.append(await _collected_fallback(args, tags, missing))
+        else:
+            if chosen is None:
+                raise PystemctlError("give a unit name or at least one --tag")
+            if others:
+                print(
+                    f"pystemctl: {len(others) + 1} jobs match {', '.join(tags)}; "
+                    f"using the newest, {chosen.name} "
+                    f"(also: {', '.join(job.name for job in others)})",
+                    file=sys.stderr,
+                )
+            units.append(chosen.name)
     if not units:
         raise PystemctlError("give a unit name or at least one --tag")
     return units
