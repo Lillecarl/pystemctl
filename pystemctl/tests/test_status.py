@@ -100,7 +100,7 @@ def test_status_names_a_unit_that_never_ran(
     code = anyio.run(units_cmd.cmd_status, BUS, _args(units=["typo.service"]))
     assert code == 4
     out = capsys.readouterr().out
-    assert "could not be found" in out
+    assert "Unit typo.service not found." in out
     assert "Collected" not in out
 
 
@@ -131,4 +131,4 @@ def test_status_invalid_name_reports_not_found(
     monkeypatch.setattr(units_cmd.sd, "unit_properties", refuse)
     code = anyio.run(units_cmd.cmd_status, BUS, _args(units=["///.service"]))
     assert code == 4
-    assert "could not be found" in capsys.readouterr().out
+    assert "Unit ///.service not found." in capsys.readouterr().out

@@ -16,7 +16,7 @@ from typing import Any
 from jeepney.wrappers import DBusErrorResponse
 
 from ..bus import Bus
-from ..errors import PystemctlError
+from ..errors import PystemctlError, is_no_such_unit
 from .tags import SESSION_ENV, TAG_FIELD, TAGS_ENV, tags_to_environment
 
 
@@ -133,7 +133,7 @@ async def replace_transient(bus: Bus, spec: TransientSpec) -> str:
     try:
         job = await stop_unit(bus, spec.name)
     except DBusErrorResponse as error:
-        if "NoSuchUnit" not in (error.name or ""):
+        if not is_no_such_unit(error):
             raise
     else:
         await wait_job(bus, job)

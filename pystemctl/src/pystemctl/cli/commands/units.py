@@ -73,9 +73,9 @@ async def cmd_status(bus: Bus, args: argparse.Namespace) -> int:
     for name in await resolve_units(bus, args):
         try:
             props = await sd.unit_properties(bus, name)
-        except UnitNotFoundError:
-            print(f"Unit {name} could not be found.")
-            exit_code = max(exit_code, 4)
+        except UnitNotFoundError as missing:
+            print(missing)
+            exit_code = max(exit_code, missing.exit_code)
             continue
 
         if props.get("LoadState") == "not-found":
@@ -91,7 +91,7 @@ async def cmd_status(bus: Bus, args: argparse.Namespace) -> int:
                 print(json.dumps(payload, default=str, ensure_ascii=False))
                 continue
             if not trace:
-                print(f"Unit {name} could not be found.")
+                print(UnitNotFoundError(name))
                 continue
             print(f"- {name}")
             print("  Collected: finished and unloaded; the result is gone, its logs follow.")

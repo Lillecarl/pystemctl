@@ -9,7 +9,7 @@ from typing import Any
 from jeepney.wrappers import DBusErrorResponse
 
 from ..bus import UNIT_INTERFACE, Bus
-from ..errors import UnitNotFoundError
+from ..errors import UnitNotFoundError, is_no_such_unit
 
 UNIT_SUFFIXES = (
     ".service",
@@ -90,7 +90,7 @@ async def load_unit_path(bus: Bus, name: str) -> str:
     try:
         return (await bus.manager("GetUnit", "s", (name,)))[0]
     except DBusErrorResponse as error:
-        if "NoSuchUnit" not in (error.name or ""):
+        if not is_no_such_unit(error):
             raise
     try:
         return (await bus.manager("LoadUnit", "s", (name,)))[0]
@@ -118,7 +118,7 @@ async def unit_active_state(bus: Bus, name: str) -> str:
     try:
         path = (await bus.manager("GetUnit", "s", (name,)))[0]
     except DBusErrorResponse as error:
-        if "NoSuchUnit" in (error.name or ""):
+        if is_no_such_unit(error):
             return "unknown"
         raise
     return await bus.get_property(path, UNIT_INTERFACE, "ActiveState")

@@ -9,6 +9,7 @@ from collections.abc import Sequence
 from ... import journal as jr
 from ... import systemd as sd
 from ...bus import Bus, Scope
+from ...errors import UnitNotFoundError
 from ..helpers import has_journal_trace, resolve_units, tail_count
 
 
@@ -55,7 +56,7 @@ async def _drop_unknown(bus: Bus, args: argparse.Namespace, units: list[str]) ->
                 if await has_journal_trace(name, scope):
                     kept.append(name)
                     continue
-                print(f"pystemctl: Unit {name} not found.", file=sys.stderr)
+                print(f"pystemctl: {UnitNotFoundError(name)}", file=sys.stderr)
                 continue
         kept.append(name)
     return kept

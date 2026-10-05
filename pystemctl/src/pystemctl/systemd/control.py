@@ -11,6 +11,7 @@ from jeepney import MatchRule
 from jeepney.wrappers import DBusErrorResponse
 
 from ..bus import JOB_INTERFACE, SYSTEMD_BUS_NAME, UNIT_INTERFACE, Bus
+from ..errors import is_no_such_unit
 from .units import load_unit_path, unit_interface
 
 _TERMINAL_JOB_STATES = frozenset({"done", "canceled", "failed", "timeout"})
@@ -41,7 +42,7 @@ async def reset_failed_unit(bus: Bus, name: str) -> None:
     try:
         await bus.manager("ResetFailedUnit", "s", (name,))
     except DBusErrorResponse as error:
-        if "NoSuchUnit" not in (error.name or ""):
+        if not is_no_such_unit(error):
             raise
 
 

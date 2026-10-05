@@ -38,7 +38,10 @@ def _run(
         return anyio.run(dispatch, args, backend="asyncio")
     except KeyboardInterrupt:
         return 130
-    except (PystemctlError, DBusErrorResponse, RuntimeError, FileNotFoundError) as error:
+    except PystemctlError as error:
+        print(f"{prefix}: {error}", file=sys.stderr)
+        return error.exit_code
+    except (DBusErrorResponse, RuntimeError, FileNotFoundError) as error:
         print(f"{prefix}: {error}", file=sys.stderr)
         return 1
 

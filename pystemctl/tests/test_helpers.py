@@ -10,7 +10,7 @@ from conftest import BUS
 
 from pystemctl.bus import Scope
 from pystemctl.cli import helpers
-from pystemctl.errors import PystemctlError
+from pystemctl.errors import PystemctlError, UnitNotFoundError
 
 
 def test_unit_session_reads_the_recorded_session() -> None:
@@ -97,5 +97,5 @@ def test_resolve_existing_without_a_trace_is_not_found(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     _resolve_setup(monkeypatch, {"LoadState": "not-found"}, trace=False)
-    with pytest.raises(PystemctlError, match="not found"):
+    with pytest.raises(UnitNotFoundError, match="not found"):
         anyio.run(helpers.resolve_existing, BUS, argparse.Namespace())

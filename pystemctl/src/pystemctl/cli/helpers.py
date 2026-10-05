@@ -15,7 +15,7 @@ import anyio
 from .. import journal as jr
 from .. import systemd as sd
 from ..bus import Bus, Scope
-from ..errors import PystemctlError
+from ..errors import PystemctlError, UnitNotFoundError
 from ..systemd import Unit
 from ..systemd.tags import SESSION_ENV, session_id
 
@@ -122,7 +122,7 @@ async def resolve_existing(bus: Bus, args: argparse.Namespace) -> tuple[str, dic
             raise PystemctlError(
                 f"Unit {name} already finished and was collected; see pystemctl logs {name}"
             )
-        raise PystemctlError(f"Unit {name} not found.")
+        raise UnitNotFoundError(name)
     return name, props
 
 

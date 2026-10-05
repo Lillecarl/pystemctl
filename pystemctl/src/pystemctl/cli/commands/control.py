@@ -11,6 +11,7 @@ from jeepney.wrappers import DBusErrorResponse
 
 from ... import systemd as sd
 from ...bus import Bus
+from ...errors import UnitNotFoundError, is_no_such_unit
 from ..helpers import note_foreign_session
 
 _Action = Callable[[Bus, str], Awaitable[str]]
@@ -43,8 +44,8 @@ async def _unit_action(bus: Bus, args: argparse.Namespace, action: _Action) -> i
         try:
             job = await action(bus, name)
         except DBusErrorResponse as error:
-            if "NoSuchUnit" in (error.name or ""):
-                message = f"Unit {name} not found."
+            if is_no_such_unit(error):
+                message = str(UnitNotFoundError(name))
             else:
                 message = f"{name}: {error}"
             results.append({"unit": name, "job_state": "failed", "error": message})
@@ -74,7 +75,7 @@ async def cmd_rm(bus: Bus, args: argparse.Namespace) -> int:
             # something that does not exist is an error, the way rm(1) treats
             # a missing file. Success here would hide a typo behind a cleanup
             # that never happened.
-            message = f"Unit {name} not found."
+            message = str(UnitNotFoundError(name))
             removed.append({"unit": name, "removed": False, "error": message})
             if not args.json:
                 print(f"pystemctl: {message}", file=sys.stderr)
