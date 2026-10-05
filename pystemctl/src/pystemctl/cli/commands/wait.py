@@ -22,7 +22,8 @@ DEFAULT_REPLAY = 200
 
 
 async def cmd_wait(bus: Bus, args: WaitArgs) -> int:
-    name, _ = await resolve_existing(bus, args)
+    target, _ = await resolve_existing(bus, args)
+    name = target.name
 
     outcome = WatchOutcome()
     scope = anyio.move_on_after(args.timeout) if args.timeout is not None else NoTimeout()

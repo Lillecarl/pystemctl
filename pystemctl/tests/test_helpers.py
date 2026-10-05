@@ -72,8 +72,8 @@ def test_has_journal_trace_empty_means_never_ran(
 
 
 def _resolve_setup(monkeypatch: pytest.MonkeyPatch, props: dict[str, Any], trace: bool) -> None:
-    async def target(bus: object, args: object) -> str:
-        return "gone.service"
+    async def target(bus: object, args: object) -> helpers.Target:
+        return helpers.Target("gone.service", helpers.TargetHow.EXPLICIT)
 
     async def properties(bus: object, name: str) -> dict[str, Any]:
         return props
@@ -81,7 +81,7 @@ def _resolve_setup(monkeypatch: pytest.MonkeyPatch, props: dict[str, Any], trace
     async def has_trace(name: str, scope: object) -> bool:
         return trace
 
-    monkeypatch.setattr(helpers, "resolve_target", target)
+    monkeypatch.setattr(helpers, "resolve_one", target)
     monkeypatch.setattr(helpers.sd, "try_unit_properties", properties)
     monkeypatch.setattr(helpers, "has_journal_trace", has_trace)
 

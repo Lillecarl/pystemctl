@@ -11,7 +11,7 @@ from ...render import format_table, format_unit_status
 from ..args import ListArgs, ListFilesArgs, StatusArgs
 from ..helpers import (
     has_journal_trace,
-    resolve_units,
+    resolve_many,
     unit_payload,
     unit_payload_from_props,
 )
@@ -70,7 +70,8 @@ async def cmd_list_unit_files(bus: Bus, args: ListFilesArgs) -> int:
 
 async def cmd_status(bus: Bus, args: StatusArgs) -> int:
     exit_code = 0
-    for name in await resolve_units(bus, args):
+    for target in await resolve_many(bus, args):
+        name = target.name
         try:
             props = await sd.unit_properties(bus, name)
         except UnitNotFoundError as missing:

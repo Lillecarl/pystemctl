@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import datetime as dt
+import enum
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 from functools import partial
@@ -15,14 +16,40 @@ from .. import systemd as sd
 from ..bus import Bus, Scope
 from ..errors import PystemctlError, UnitNotFoundError
 from ..systemd import Unit
+from ..systemd.jobs import Job
 from ..systemd.tags import read_tags, session_id
 from ..systemd.units import environment_of
 from .args import BaseArgs, MultiTargetArgs, SingleTargetArgs, WatchArgs
 from .output import emit_json, warn
 
 
-async def _collected_fallback(scope: Scope, tags: Sequence[str], missing: PystemctlError) -> str:
-    """Name of a finished job from its journal entries, or re-raise.
+class TargetHow(enum.Enum):
+    """How a target resolved: named, matched by tag, or found in the journal."""
+
+    EXPLICIT = "explicit"
+    TAG = "tag"
+    COLLECTED = "collected"
+
+
+@dataclass(frozen=True)
+class Target:
+    """One unit to act on, and how it was chosen."""
+
+    name: str
+    how: TargetHow
+
+
+def _note_others(tags: Sequence[str], chosen: Job, others: list[Job]) -> None:
+    """Name the passed-over matches, so a surprising choice stays visible."""
+    warn(
+        f"{len(others) + 1} jobs match {', '.join(tags)}; "
+        f"using the newest, {chosen.name} "
+        f"(also: {', '.join(job.name for job in others)})"
+    )
+
+
+async def _collected_target(scope: Scope, tags: Sequence[str], missing: PystemctlError) -> Target:
+    """Name a finished job from its journal entries, or re-raise.
 
     The manager unloads a finished transient unit, so the bus cannot resolve
     its tag anymore; the unit's own log lines outlive it and carry the tags.
@@ -37,84 +64,74 @@ async def _collected_fallback(scope: Scope, tags: Sequence[str], missing: Pystem
     if name is None:
         raise missing
     warn(f"{name} already finished and was collected; reading its journal")
-    return name
+    return Target(name, TargetHow.COLLECTED)
 
 
-async def resolve_target(bus: Bus, args: SingleTargetArgs) -> str:
+async def _tagged_target(
+    bus: Bus, tags: Sequence[str], scope: Scope, session: str | None
+) -> Target:
+    """The newest job carrying every tag, falling back to its journal."""
+    try:
+        chosen, others = await sd.resolve(bus, tags=tags, session=session)
+    except PystemctlError as missing:
+        return await _collected_target(scope, tags, missing)
+    if chosen is None:
+        # Unreachable against the real manager: without a unit name resolve
+        # either matches or raises. The checker cannot see that, and a None
+        # here must fail loudly at the source rather than twenty lines on.
+        raise PystemctlError("give a unit name or at least one --tag")
+    if others:
+        _note_others(tags, chosen, others)
+    return Target(chosen.name, TargetHow.TAG)
+
+
+async def resolve_one(bus: Bus, args: SingleTargetArgs) -> Target:
     """Return the unit the command should act on.
 
     A unit name is used as given. Tags select the newest matching job; when
     several matched, the others are named on stderr so a surprising choice is
     visible rather than silent.
     """
-    tags = args.tags
-    if not tags and args.unit:
-        return sd.normalize_unit_name(args.unit)
-
-    try:
-        chosen, others = await sd.resolve(bus, tags=tags)
-    except PystemctlError as missing:
-        if not tags:
-            raise
-        return await _collected_fallback(args.scope, tags, missing)
-    if chosen is None:
+    if not args.tags:
+        if args.unit:
+            return Target(sd.normalize_unit_name(args.unit), TargetHow.EXPLICIT)
         raise PystemctlError("no unit or tag given")
-    if others:
-        warn(
-            f"{len(others) + 1} jobs match {', '.join(tags)}; "
-            f"using the newest, {chosen.name} "
-            f"(also: {', '.join(job.name for job in others)})"
-        )
-    return chosen.name
+    return await _tagged_target(bus, args.tags, args.scope, None)
 
 
-async def resolve_units(bus: Bus, args: MultiTargetArgs) -> list[str]:
+async def resolve_many(bus: Bus, args: MultiTargetArgs) -> list[Target]:
     """Unit names from the positionals plus the newest job matching --tag.
 
     ``logs`` and ``status`` read any number of units, so tags resolve to one
-    more name on the list rather than replacing it. Several matches name the
-    others on stderr, the way resolve_target already does.
+    more target on the list rather than replacing it.
     """
-    units = [sd.normalize_unit_name(raw) for raw in args.units]
-    tags = args.tags
-    if tags:
-        try:
-            chosen, others = await sd.resolve(bus, tags=tags, session=args.session)
-        except PystemctlError as missing:
-            units.append(await _collected_fallback(args.scope, tags, missing))
-        else:
-            if chosen is None:
-                raise PystemctlError("give a unit name or at least one --tag")
-            if others:
-                warn(
-                    f"{len(others) + 1} jobs match {', '.join(tags)}; "
-                    f"using the newest, {chosen.name} "
-                    f"(also: {', '.join(job.name for job in others)})"
-                )
-            units.append(chosen.name)
-    if not units:
+    targets = [Target(sd.normalize_unit_name(raw), TargetHow.EXPLICIT) for raw in args.units]
+    if args.tags:
+        targets.append(await _tagged_target(bus, args.tags, args.scope, args.session))
+    if not targets:
         raise PystemctlError("give a unit name or at least one --tag")
-    return units
+    return targets
 
 
-async def resolve_existing(bus: Bus, args: SingleTargetArgs) -> tuple[str, dict[str, Any]]:
+async def resolve_existing(bus: Bus, args: SingleTargetArgs) -> tuple[Target, dict[str, Any]]:
     """Resolve a target and read its properties, failing if it is not loaded.
 
-    Returns the unit name and its property map, so a caller does not fetch the
+    Returns the target and its property map, so a caller does not fetch the
     same properties twice. A unit the journal remembers finished and was
     collected by the manager, which unloads successful transient units almost
     at once; saying only "not found" would hide that its output is still
     readable.
     """
-    name = await resolve_target(bus, args)
-    props = await sd.try_unit_properties(bus, name)
+    target = await resolve_one(bus, args)
+    props = await sd.try_unit_properties(bus, target.name)
     if not props or props.get("LoadState") == "not-found":
-        if await has_journal_trace(name, args.scope):
+        if await has_journal_trace(target.name, args.scope):
             raise PystemctlError(
-                f"Unit {name} already finished and was collected; see pystemctl logs {name}"
+                f"Unit {target.name} already finished and was collected; "
+                f"see pystemctl logs {target.name}"
             )
-        raise UnitNotFoundError(name)
-    return name, props
+        raise UnitNotFoundError(target.name)
+    return target, props
 
 
 def emit(args: BaseArgs, text: str | None, payload: Any) -> None:

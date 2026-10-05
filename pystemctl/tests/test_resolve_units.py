@@ -7,8 +7,10 @@ import pytest
 from conftest import BUS
 
 from pystemctl import systemd as sd
+from pystemctl.bus import Scope
 from pystemctl.cli import helpers
-from pystemctl.cli.args import MultiTargetArgs
+from pystemctl.cli.args import MultiTargetArgs, SingleTargetArgs
+from pystemctl.cli.helpers import Target, TargetHow
 from pystemctl.cli.parser import build_parser
 from pystemctl.errors import PystemctlError
 from pystemctl.systemd.jobs import Job
@@ -54,20 +56,25 @@ def test_units_only_are_normalized_without_touching_tags(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     _resolving(monkeypatch, _job("new.service"))
-    assert anyio.run(helpers.resolve_units, BUS, _args(units=["web"])) == ["web.service"]
+    assert anyio.run(helpers.resolve_many, BUS, _args(units=["web"])) == [
+        Target("web.service", TargetHow.EXPLICIT)
+    ]
 
 
 def test_tag_appends_the_newest_match(monkeypatch: pytest.MonkeyPatch) -> None:
     _resolving(monkeypatch, _job("new.service"), [_job("old.service")])
-    units = anyio.run(helpers.resolve_units, BUS, _args(units=["web"], tags=["t"]))
-    assert units == ["web.service", "new.service"]
+    targets = anyio.run(helpers.resolve_many, BUS, _args(units=["web"], tags=["t"]))
+    assert targets == [
+        Target("web.service", TargetHow.EXPLICIT),
+        Target("new.service", TargetHow.TAG),
+    ]
 
 
 def test_other_matches_are_named_on_stderr(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     _resolving(monkeypatch, _job("new.service"), [_job("old.service")])
-    anyio.run(helpers.resolve_units, BUS, _args(tags=["t"]))
+    anyio.run(helpers.resolve_many, BUS, _args(tags=["t"]))
     assert "old.service" in capsys.readouterr().err
 
 
@@ -77,12 +84,28 @@ def test_tag_miss_propagates_resolve_error(monkeypatch: pytest.MonkeyPatch) -> N
 
     monkeypatch.setattr(sd, "resolve", missing)
     with pytest.raises(PystemctlError, match="no job tagged"):
-        anyio.run(helpers.resolve_units, BUS, _args(tags=["t"]))
+        anyio.run(helpers.resolve_many, BUS, _args(tags=["t"]))
 
 
 def test_neither_unit_nor_tag_is_an_error() -> None:
     with pytest.raises(PystemctlError, match="give a unit name"):
-        anyio.run(helpers.resolve_units, BUS, _args())
+        anyio.run(helpers.resolve_many, BUS, _args())
+
+
+def test_single_target_uses_a_name_as_given() -> None:
+    args = SingleTargetArgs(unit="web", tags=[], scope=Scope.USER)
+    assert anyio.run(helpers.resolve_one, BUS, args) == Target("web.service", TargetHow.EXPLICIT)
+
+
+def test_single_target_without_either_is_an_error() -> None:
+    with pytest.raises(PystemctlError, match="no unit or tag given"):
+        anyio.run(helpers.resolve_one, BUS, SingleTargetArgs())
+
+
+def test_single_target_reports_how_it_resolved(monkeypatch: pytest.MonkeyPatch) -> None:
+    _resolving(monkeypatch, _job("new.service"))
+    args = SingleTargetArgs(unit=None, tags=["t"], scope=Scope.USER)
+    assert anyio.run(helpers.resolve_one, BUS, args) == Target("new.service", TargetHow.TAG)
 
 
 @pytest.mark.parametrize("command", ["logs", "status"])

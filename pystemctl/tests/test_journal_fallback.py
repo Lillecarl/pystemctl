@@ -145,7 +145,7 @@ def _resolve_args(units: list[str] | None = None, tags: list[str] | None = None)
     return MultiTargetArgs(units=units or [], tags=tags or [], session=None)
 
 
-def test_resolve_units_falls_back_to_the_journal(
+def test_resolve_many_falls_back_to_the_journal(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     async def missing(bus: object, **_: object) -> object:
@@ -156,12 +156,12 @@ def test_resolve_units_falls_back_to_the_journal(
 
     monkeypatch.setattr("pystemctl.systemd.resolve", missing)
     monkeypatch.setattr(jr, "newest_unit_for_tags", found)
-    units = anyio.run(helpers.resolve_units, BUS, _resolve_args(tags=["t"]))
-    assert units == ["old.service"]
+    targets = anyio.run(helpers.resolve_many, BUS, _resolve_args(tags=["t"]))
+    assert targets == [helpers.Target("old.service", helpers.TargetHow.COLLECTED)]
     assert "collected" in capsys.readouterr().err
 
 
-def test_resolve_units_keeps_the_original_miss(
+def test_resolve_many_keeps_the_original_miss(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     async def missing(bus: object, **_: object) -> object:
@@ -173,4 +173,4 @@ def test_resolve_units_keeps_the_original_miss(
     monkeypatch.setattr("pystemctl.systemd.resolve", missing)
     monkeypatch.setattr(jr, "newest_unit_for_tags", found)
     with pytest.raises(PystemctlError, match="no job tagged"):
-        anyio.run(helpers.resolve_units, BUS, _resolve_args(tags=["t"]))
+        anyio.run(helpers.resolve_many, BUS, _resolve_args(tags=["t"]))

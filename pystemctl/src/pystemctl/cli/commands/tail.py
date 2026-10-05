@@ -26,7 +26,8 @@ DEFAULT_REPLAY = 200
 
 
 async def cmd_tail(bus: Bus, args: TailArgs) -> int:
-    name, props = await resolve_existing(bus, args)
+    target, props = await resolve_existing(bus, args)
+    name = target.name
 
     outcome = WatchOutcome(props=props)
     replay = args.lines if args.lines is not None else DEFAULT_REPLAY

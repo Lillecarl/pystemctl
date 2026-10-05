@@ -13,7 +13,7 @@ from pystemctl.cli import helpers
 from pystemctl.cli.args import WaitArgs
 from pystemctl.cli.commands import wait as wait_cmd
 from pystemctl.cli.commands.wait import _report, _report_timeout
-from pystemctl.cli.helpers import WatchOutcome
+from pystemctl.cli.helpers import Target, TargetHow, WatchOutcome
 
 
 def _args(json_mode: bool = False) -> WaitArgs:
@@ -65,8 +65,8 @@ def test_cmd_wait_timeout_is_not_success(
 ) -> None:
     """A wait that outlives its --timeout must not read as success."""
 
-    async def resolve(bus: object, args: object) -> tuple[str, dict[str, object]]:
-        return "x.service", {}
+    async def resolve(bus: object, args: object) -> tuple[Target, dict[str, object]]:
+        return Target("x.service", TargetHow.EXPLICIT), {}
 
     async def slow(bus: object, name: str) -> dict[str, object]:
         await anyio.sleep(30)
@@ -97,8 +97,8 @@ def test_wait_matches_lifecycle_notices(
 ) -> None:
     """--grep matches everything, including the manager's lifecycle lines."""
 
-    async def resolve(bus: object, args: object) -> tuple[str, dict[str, object]]:
-        return "x.service", {}
+    async def resolve(bus: object, args: object) -> tuple[Target, dict[str, object]]:
+        return Target("x.service", TargetHow.EXPLICIT), {}
 
     async def finished(bus: object, name: str) -> dict[str, object]:
         return {"ActiveState": "inactive", "Type": "service", "Result": "success"}

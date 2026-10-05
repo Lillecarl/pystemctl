@@ -6,14 +6,21 @@ from ... import journal as jr
 from ... import systemd as sd
 from ...bus import Bus, Scope
 from ...errors import UnitNotFoundError
-from ..args import LogsArgs, MultiTargetArgs
-from ..helpers import has_journal_trace, resolve_units, tail_count, unit_groups
+from ..args import LogsArgs
+from ..helpers import (
+    Target,
+    TargetHow,
+    has_journal_trace,
+    resolve_many,
+    tail_count,
+    unit_groups,
+)
 from ..output import warn
 
 
 async def cmd_logs(bus: Bus, args: LogsArgs) -> int:
-    units = await resolve_units(bus, args)
-    units = await _drop_unknown(bus, args, units)
+    targets = await resolve_many(bus, args)
+    units = await _drop_unknown(bus, targets, args.scope)
     if not units:
         return 1
     system_units, user_units = unit_groups(units, args.scope)
@@ -35,27 +42,26 @@ async def cmd_logs(bus: Bus, args: LogsArgs) -> int:
     return 0
 
 
-async def _drop_unknown(bus: Bus, args: MultiTargetArgs, units: list[str]) -> list[str]:
+async def _drop_unknown(bus: Bus, targets: list[Target], scope: Scope) -> list[str]:
     """Remove named units that never ran, failing the way ``wait`` does.
 
-    Only positionals are checked: a tag already resolved to something real,
-    or to a collected job whose journal outlives it. A collected job stays,
-    because its log lines are exactly what was asked for; a name with no
-    journal trace is a typo, and answering it with empty output and success
-    would hide that.
+    Only explicit names are checked: a tag already resolved to something
+    real, or to a collected job whose journal outlives it. A collected job
+    stays, because its log lines are exactly what was asked for; a name
+    with no journal trace is a typo, and answering it with empty output
+    and success would hide that.
     """
-    explicit = {sd.normalize_unit_name(raw) for raw in args.units}
     kept = []
-    for name in units:
-        if name in explicit:
-            props = await sd.try_unit_properties(bus, name)
+    for target in targets:
+        if target.how is TargetHow.EXPLICIT:
+            props = await sd.try_unit_properties(bus, target.name)
             if not props or props.get("LoadState") == "not-found":
-                if await has_journal_trace(name, args.scope):
-                    kept.append(name)
+                if await has_journal_trace(target.name, scope):
+                    kept.append(target.name)
                     continue
-                warn(UnitNotFoundError(name))
+                warn(UnitNotFoundError(target.name))
                 continue
-        kept.append(name)
+        kept.append(target.name)
     return kept
 
 

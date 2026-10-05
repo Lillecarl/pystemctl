@@ -11,7 +11,7 @@ from pystemctl.bus import Scope
 from pystemctl.cli import helpers
 from pystemctl.cli.args import TailArgs, WatchArgs
 from pystemctl.cli.commands import tail as tail_cmd
-from pystemctl.cli.helpers import WatchOutcome
+from pystemctl.cli.helpers import Target, TargetHow, WatchOutcome
 
 
 class _Scope:
@@ -44,8 +44,11 @@ def test_follow_hides_notices_unless_grepping(
         for line in logged:
             yield line
 
-    async def resolve(bus: object, args: object) -> tuple[str, dict[str, object]]:
-        return "x.service", {"ActiveState": "active", "SubState": "running"}
+    async def resolve(bus: object, args: object) -> tuple[Target, dict[str, object]]:
+        return Target("x.service", TargetHow.EXPLICIT), {
+            "ActiveState": "active",
+            "SubState": "running",
+        }
 
     async def finished(bus: object, name: str) -> dict[str, object]:
         return {"ActiveState": "inactive", "Type": "service", "Result": "success"}
@@ -141,8 +144,11 @@ def test_follow_matching_skips_notices_by_default(
 def _stall_tail(monkeypatch: pytest.MonkeyPatch) -> None:
     """Resolve a running unit, then never observe anything more."""
 
-    async def resolve(bus: object, args: object) -> tuple[str, dict[str, object]]:
-        return "x.service", {"ActiveState": "active", "SubState": "running"}
+    async def resolve(bus: object, args: object) -> tuple[Target, dict[str, object]]:
+        return Target("x.service", TargetHow.EXPLICIT), {
+            "ActiveState": "active",
+            "SubState": "running",
+        }
 
     async def slow_finished(bus: object, name: str) -> dict[str, object]:
         await anyio.sleep(30)
