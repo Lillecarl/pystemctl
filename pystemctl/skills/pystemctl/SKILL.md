@@ -22,8 +22,11 @@ pystemctl show -P ActiveState -P SubState myunit.service
 
 ## Run an ephemeral unit
 
-`pystemctl run` starts a command as a transient unit. It does not inherit the
-caller's environment or cwd; use a profile or explicit flags.
+`pystemctl run` starts a command as a transient unit. A bare run inherits
+the caller's full environment and working directory, so it behaves like the
+same command in the calling shell. Explicit `--setenv` wins over inherited
+values; `--clean` starts empty instead. A `--profile` run keeps whitelist
+semantics: only its `inherit_env` patterns plus fixed `env` carry over.
 
 ```sh
 pystemctl run --wait -- sleep 5
@@ -35,7 +38,7 @@ pystemctl run --setenv KEY=VALUE --property MemoryMax=1G -- ./app
 
 Key flags: `--unit NAME`, `--profile NAME`, `--description/-d`,
 `--working-directory/-D`, `--setenv/-E KEY=VALUE` (repeatable),
-`--property/-P NAME=VALUE` (repeatable), `--type simple|exec|oneshot|idle`,
+`--clean` (empty environment), `--property/-P NAME=VALUE` (repeatable), `--type simple|exec|oneshot|idle`,
 `--remain-after-exit`, `--collect` / `--no-collect`, `--replace`,
 `--no-block`, `--wait`, `--runtime-max SECONDS`, `--nice N`, `--slice SLICE`,
 `--shell` (run through `sh -c`), `--tag/-T TAG` (repeatable), `--session ID`.
@@ -142,8 +145,10 @@ resolves it at completion time.
 
 ## Notes
 
-- Transient units do not inherit the environment. A missing env var in a job
-  usually means the profile's `inherit_env` glob does not cover it.
+- Bare runs inherit the caller's environment; a missing var there means
+  `--clean` was passed or a profile's `inherit_env` glob does not cover it.
+- With `--system`, unit environments are visible on the system bus. Do not
+  run secrets through env there unless every local user may read them.
 - A collected unit loses its exit status. Keep `--no-collect` or a `--tag`
   when a later `wait` / `tail` / `jobs` lookup needs the result.
 - Prefer `--json` plus `show -P` when scripting over `status` text.

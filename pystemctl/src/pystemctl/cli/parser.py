@@ -57,6 +57,11 @@ def build_parser() -> argparse.ArgumentParser:
     run.add_argument("--description", "-d", metavar="TEXT")
     run.add_argument("--working-directory", "-D", metavar="DIR")
     run.add_argument("--setenv", "-E", action="append", default=[], metavar="KEY=VALUE")
+    run.add_argument(
+        "--clean",
+        action="store_true",
+        help="start with an empty environment instead of inheriting the caller's",
+    )
     run.add_argument("--property", "-P", action="append", default=[], metavar="NAME=VALUE")
     run.add_argument("--type", default="simple", choices=["simple", "exec", "oneshot", "idle"])
     run.add_argument("--remain-after-exit", action="store_true")

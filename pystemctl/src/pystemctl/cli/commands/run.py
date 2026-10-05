@@ -14,8 +14,19 @@ from ... import profiles
 from ... import systemd as sd
 from ...bus import Bus
 from ...errors import PystemctlError
-from ...systemd.tags import session_id
+from ...systemd.tags import RESERVED, session_id
 from ..helpers import emit, parse_environment, parse_property, strip_separator
+
+
+def _caller_environment(args: argparse.Namespace) -> dict[str, str]:
+    """The invoking process's environment, unless --clean was passed.
+
+    Reserved tag variables never ride along: they name the job for the
+    lookup commands, and an inherited value would spoof them.
+    """
+    if getattr(args, "clean", False):
+        return {}
+    return {key: value for key, value in os.environ.items() if key not in RESERVED}
 
 
 def _load_profile(args: argparse.Namespace) -> profiles.Profile | None:
@@ -40,7 +51,7 @@ async def cmd_run(bus: Bus, args: argparse.Namespace) -> int:
     else:
         argv = command
 
-    environment = parse_environment(args.setenv)
+    explicit = parse_environment(args.setenv)
     properties: dict[str, tuple[str, Any]] = {}
     unit_type = args.type
     description = args.description
@@ -52,9 +63,13 @@ async def cmd_run(bus: Bus, args: argparse.Namespace) -> int:
     remain_after_exit = args.remain_after_exit
     collect = args.collect
 
-    if profile is not None:
+    if profile is None:
+        # No profile: the job runs as the caller would, with the caller's
+        # environment. Explicit --setenv wins over inherited values.
+        environment = {**_caller_environment(args), **explicit}
+    else:
         inherited = profiles.resolve_environment(profile)
-        environment = {**inherited, **environment}
+        environment = {**inherited, **explicit}
         properties.update(profile.properties)
         unit_type = unit_type or profile.unit_type or "simple"
         description = description or profile.description
