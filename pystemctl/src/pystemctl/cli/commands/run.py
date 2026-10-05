@@ -8,14 +8,23 @@ import shutil
 import sys
 from typing import Any
 
+import anyio
 from jeepney.wrappers import DBusErrorResponse
 
 from ... import profiles
 from ... import systemd as sd
+from ... import journal as jr
 from ...bus import Bus
 from ...errors import PystemctlError
 from ...systemd.tags import RESERVED, session_id
-from ..helpers import emit, parse_environment, parse_property, strip_separator
+from ..helpers import (
+    WatchOutcome,
+    emit,
+    parse_environment,
+    parse_property,
+    strip_separator,
+    unit_groups,
+)
 
 
 def _caller_environment(args: argparse.Namespace) -> dict[str, str]:
@@ -37,6 +46,23 @@ def _load_profile(args: argparse.Namespace) -> profiles.Profile | None:
         names = ", ".join(sorted(available)) or "none defined"
         raise PystemctlError(f"profile {args.profile!r} not found (available: {names})")
     return profiles.apply_cli_overrides(available[args.profile], args)
+
+
+async def _stream(name: str, args: argparse.Namespace, group: anyio.abc.TaskGroup) -> None:
+    """Print the job's output as it arrives, until the watcher cancels us."""
+    system_units, user_units = unit_groups([name], args.scope)
+    async for line in jr.follow_lines(
+        system_units=system_units, user_units=user_units, since_lines=100
+    ):
+        print(line, flush=True)
+    group.cancel_scope.cancel()
+
+
+async def _watch(
+    bus: Bus, name: str, outcome: WatchOutcome, group: anyio.abc.TaskGroup
+) -> None:
+    outcome.props = await sd.wait_until_finished(bus, name)
+    group.cancel_scope.cancel()
 
 
 async def cmd_run(bus: Bus, args: argparse.Namespace) -> int:
@@ -119,7 +145,20 @@ async def cmd_run(bus: Bus, args: argparse.Namespace) -> int:
 
     job_state = None if args.no_block else await sd.wait_job(bus, job)
 
-    props = await sd.wait_until_finished(bus, name) if args.wait else await sd.try_unit_properties(bus, name)
+    if args.wait and not args.json:
+        # Text mode shows the output as it happens; the unit name and the
+        # exit status still come at the end, so scripts keep their contract.
+        outcome = WatchOutcome()
+        async with anyio.create_task_group() as group:
+            group.start_soon(_stream, name, args, group)
+            group.start_soon(_watch, bus, name, outcome, group)
+        props = outcome.props
+    else:
+        props = (
+            await sd.wait_until_finished(bus, name)
+            if args.wait
+            else await sd.try_unit_properties(bus, name)
+        )
 
     payload = {
         "unit": name,
