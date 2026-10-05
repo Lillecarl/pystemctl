@@ -73,6 +73,22 @@ async def cmd_status(bus: Bus, args: argparse.Namespace) -> int:
             exit_code = max(exit_code, 4)
             continue
 
+        if props.get("LoadState") == "not-found":
+            exit_code = max(exit_code, 3)
+            if args.json:
+                payload = unit_payload_from_props(name, props)
+                if not args.no_journal:
+                    payload["journal"] = await journal_tail(name, args.lines, args.scope)
+                print(json.dumps(payload, default=str, ensure_ascii=False))
+                continue
+            print(f"- {name}")
+            print("  Collected: finished and unloaded; the result is gone, its logs follow.")
+            if not args.no_journal:
+                for line in await journal_tail(name, args.lines, args.scope):
+                    print(f"    {line}")
+            print()
+            continue
+
         active_state = props.get("ActiveState", "inactive")
         exit_code = max(exit_code, 0 if active_state == "active" else 3)
 
