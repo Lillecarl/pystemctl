@@ -8,9 +8,10 @@ from typing import Any
 
 import anyio
 import pytest
-from conftest import BUS, as_task_group
+from conftest import BUS
 
 from pystemctl.bus import Scope
+from pystemctl.cli import helpers
 from pystemctl.cli.commands import run as run_cmd
 from pystemctl.cli.commands.run import _caller_environment
 from pystemctl.systemd.tags import RESERVED
@@ -38,19 +39,6 @@ def test_caller_environment_clean_is_empty() -> None:
     assert _caller_environment(_args(clean=True)) == {}
 
 
-class _Scope:
-    def __init__(self) -> None:
-        self.cancelled = False
-
-    def cancel(self) -> None:
-        self.cancelled = True
-
-
-class _Group:
-    def __init__(self) -> None:
-        self.cancel_scope = _Scope()
-
-
 def _run_args(**overrides: object) -> argparse.Namespace:
     values: dict[str, object] = {
         "command": ["echo", "hi"],
@@ -73,18 +61,25 @@ def _run_args(**overrides: object) -> argparse.Namespace:
         "wait": True,
         "session": None,
         "json": False,
+        "grep": None,
         "scope": Scope.USER,
     }
     values.update(overrides)
     return argparse.Namespace(**values)
 
 
-def _following(monkeypatch: pytest.MonkeyPatch, lines: Sequence[str]) -> None:
-    async def fake(**_: object) -> AsyncIterator[str]:
+def _following(
+    monkeypatch: pytest.MonkeyPatch,
+    lines: Sequence[str],
+    seen: dict[str, object] | None = None,
+) -> None:
+    async def fake(**kwargs: object) -> AsyncIterator[str]:
+        if seen is not None:
+            seen.update(kwargs)
         for line in lines:
             yield line
 
-    monkeypatch.setattr(run_cmd.jr, "follow_lines", fake)
+    monkeypatch.setattr(helpers.jr, "follow_lines", fake)
 
 
 def _finishing(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -106,37 +101,22 @@ def _finishing(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(run_cmd.sd, "try_unit_properties", current)
 
 
-def test_stream_prints_output_lines(
-    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
-) -> None:
-    _following(monkeypatch, ["l1", "l2"])
-    group = _Group()
-    anyio.run(run_cmd._stream, "job.service", _run_args(), as_task_group(group))
-    assert capsys.readouterr().out.splitlines() == ["l1", "l2"]
-    assert group.cancel_scope.cancelled
-
-
-def test_watch_records_properties_and_stops(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    _finishing(monkeypatch)
-    outcome = run_cmd.WatchOutcome()
-    group = _Group()
-    anyio.run(run_cmd._watch, BUS, "job.service", outcome, as_task_group(group))
-    assert outcome.props["Result"] == "success"
-    assert group.cancel_scope.cancelled
-
-
 def test_wait_streams_output_before_the_unit_name(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     _finishing(monkeypatch)
-    _following(monkeypatch, ["hello"])
+    seen: dict[str, object] = {}
+    _following(monkeypatch, ["hello"], seen)
     assert anyio.run(run_cmd.cmd_run, BUS, _run_args()) == 0
     captured = capsys.readouterr()
     # The command's output owns stdout; the unit name rides on stderr.
     assert captured.out.splitlines() == ["hello"]
     assert "job.service" in captured.err.splitlines()
+    # run streams everything already written plus the live tail, notices
+    # included, and never stops on a match it has no pattern for.
+    assert seen["since_lines"] == 100
+    assert seen["pattern"] is None
+    assert seen["skip_notices"] is True
 
 
 def test_detached_run_hints_at_logs_and_wait(

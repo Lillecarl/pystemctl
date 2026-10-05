@@ -25,31 +25,64 @@ class _Group:
 
 
 @pytest.mark.parametrize(
-    ("grep", "skipped"),
-    [(None, True), ("ERROR", False)],
+    ("grep", "skipped", "code", "logged"),
+    [(None, True, 0, ["unrelated"]), ("ERROR", False, 1, [])],
 )
-def test_stream_hides_notices_unless_grepping(
-    monkeypatch: pytest.MonkeyPatch, grep: str | None, skipped: bool
+def test_follow_hides_notices_unless_grepping(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    grep: str | None,
+    skipped: bool,
+    code: int,
+    logged: list[str],
 ) -> None:
     """--grep matches everything, including the manager's lifecycle lines."""
     seen: dict[str, object] = {}
 
-    async def fake(
-        name: object,
-        args: object,
-        outcome: WatchOutcome,
-        group: object,
-        *,
-        replay: int,
-        stop_on_match: bool,
-        skip_notices: bool = True,
-    ) -> None:
-        seen["skip_notices"] = skip_notices
+    async def lines(**kwargs: object) -> AsyncIterator[str]:
+        seen.update(kwargs)
+        for line in logged:
+            yield line
 
-    monkeypatch.setattr(tail_cmd, "follow_matching", fake)
-    args = argparse.Namespace(grep=grep)
-    anyio.run(tail_cmd._stream, "x.service", args, WatchOutcome(), 200, as_task_group(_Group()))
+    async def resolve(bus: object, args: object) -> tuple[str, dict[str, object]]:
+        return "x.service", {"ActiveState": "active", "SubState": "running"}
+
+    async def finished(bus: object, name: str) -> dict[str, object]:
+        return {"ActiveState": "inactive", "Type": "service", "Result": "success"}
+
+    monkeypatch.setattr(helpers.jr, "follow_lines", lines)
+    monkeypatch.setattr(tail_cmd, "resolve_existing", resolve)
+    monkeypatch.setattr(tail_cmd.sd, "wait_until_finished", finished)
+    assert anyio.run(tail_cmd.cmd_tail, BUS, _tail_args(grep=grep)) == code
     assert seen["skip_notices"] is skipped
+    capsys.readouterr()
+
+
+def test_follow_matching_tolerates_commands_without_grep(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """run --wait streams through here but its parser defines no --grep."""
+    seen: dict[str, object] = {}
+
+    async def fake(**kwargs: object) -> AsyncIterator[str]:
+        seen.update(kwargs)
+        yield "hello"
+
+    monkeypatch.setattr(helpers.jr, "follow_lines", fake)
+    args = argparse.Namespace(json=False, scope=Scope.USER)
+    watch = partial(
+        helpers.follow_matching,
+        "x.service",
+        args,
+        WatchOutcome(),
+        as_task_group(_Group()),
+        replay=10,
+        stop_on_match=False,
+        skip_notices=True,
+    )
+    anyio.run(watch)
+    assert seen["pattern"] is None
+    assert capsys.readouterr().out == "hello\n"
 
 
 def test_follow_matching_forwards_the_flag(
@@ -111,12 +144,17 @@ def _stall_tail(monkeypatch: pytest.MonkeyPatch) -> None:
     async def resolve(bus: object, args: object) -> tuple[str, dict[str, object]]:
         return "x.service", {"ActiveState": "active", "SubState": "running"}
 
-    async def slow(*args: object, **kwargs: object) -> None:
+    async def slow_finished(bus: object, name: str) -> dict[str, object]:
         await anyio.sleep(30)
+        return {}
+
+    async def slow_lines(**kwargs: object) -> AsyncIterator[str]:
+        await anyio.sleep(30)
+        yield "never"
 
     monkeypatch.setattr(tail_cmd, "resolve_existing", resolve)
-    monkeypatch.setattr(tail_cmd, "_stream", slow)
-    monkeypatch.setattr(tail_cmd, "_watch", slow)
+    monkeypatch.setattr(tail_cmd.sd, "wait_until_finished", slow_finished)
+    monkeypatch.setattr(helpers.jr, "follow_lines", slow_lines)
 
 
 def _tail_args(**overrides: object) -> argparse.Namespace:
@@ -127,6 +165,7 @@ def _tail_args(**overrides: object) -> argparse.Namespace:
         "grep": None,
         "timeout": 0.05,
         "json": False,
+        "scope": Scope.USER,
     }
     values.update(overrides)
     return argparse.Namespace(**values)

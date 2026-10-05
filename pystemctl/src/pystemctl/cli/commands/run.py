@@ -9,10 +9,8 @@ import shutil
 import sys
 from typing import Any
 
-import anyio
 from jeepney.wrappers import DBusErrorResponse
 
-from ... import journal as jr
 from ... import profiles
 from ... import systemd as sd
 from ...bus import Bus
@@ -24,7 +22,7 @@ from ..helpers import (
     parse_environment,
     parse_property,
     strip_separator,
-    unit_groups,
+    watch_unit,
 )
 
 
@@ -47,21 +45,6 @@ def _load_profile(args: argparse.Namespace) -> profiles.Profile | None:
         names = ", ".join(sorted(available)) or "none defined"
         raise PystemctlError(f"profile {args.profile!r} not found (available: {names})")
     return profiles.apply_cli_overrides(available[args.profile], args)
-
-
-async def _stream(name: str, args: argparse.Namespace, group: anyio.abc.TaskGroup) -> None:
-    """Print the job's output as it arrives, until the watcher cancels us."""
-    system_units, user_units = unit_groups([name], args.scope)
-    async for line in jr.follow_lines(
-        system_units=system_units, user_units=user_units, since_lines=100
-    ):
-        print(line, flush=True)
-    group.cancel_scope.cancel()
-
-
-async def _watch(bus: Bus, name: str, outcome: WatchOutcome, group: anyio.abc.TaskGroup) -> None:
-    outcome.props = await sd.wait_until_finished(bus, name)
-    group.cancel_scope.cancel()
 
 
 async def cmd_run(bus: Bus, args: argparse.Namespace) -> int:
@@ -149,9 +132,9 @@ async def cmd_run(bus: Bus, args: argparse.Namespace) -> int:
         # at the end, but on stderr, so stdout holds only the command's own
         # output and stays safe to capture or pipe.
         outcome = WatchOutcome()
-        async with anyio.create_task_group() as group:
-            group.start_soon(_stream, name, args, group)
-            group.start_soon(_watch, bus, name, outcome, group)
+        await watch_unit(
+            bus, name, args, outcome, replay=100, stop_on_match=False, skip_notices=True
+        )
         props = outcome.props
     else:
         props = (

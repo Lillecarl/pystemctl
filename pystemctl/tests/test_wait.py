@@ -2,13 +2,15 @@ from __future__ import annotations
 
 import argparse
 import json
+from collections.abc import AsyncIterator
 from typing import cast
 
 import anyio
 import pytest
-from conftest import BUS, as_task_group
+from conftest import BUS
 
-from pystemctl.bus import Bus
+from pystemctl.bus import Bus, Scope
+from pystemctl.cli import helpers
 from pystemctl.cli.commands import wait as wait_cmd
 from pystemctl.cli.commands.wait import _report, _report_timeout
 from pystemctl.cli.helpers import WatchOutcome
@@ -90,42 +92,30 @@ def test_report_json_carries_the_exit_code(capsys: pytest.CaptureFixture[str]) -
     assert code == 9
 
 
-class _Scope:
-    def cancel(self) -> None:
-        pass
+def test_wait_matches_lifecycle_notices(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """--grep matches everything, including the manager's lifecycle lines."""
 
+    async def resolve(bus: object, args: object) -> tuple[str, dict[str, object]]:
+        return "x.service", {}
 
-class _Group:
-    def __init__(self) -> None:
-        self.cancel_scope = _Scope()
+    async def finished(bus: object, name: str) -> dict[str, object]:
+        return {"ActiveState": "inactive", "Type": "service", "Result": "success"}
 
+    async def lines(**kwargs: object) -> AsyncIterator[str]:
+        yield "Started x.service."
 
-def test_pattern_watch_sees_manager_notices(monkeypatch: pytest.MonkeyPatch) -> None:
-    """--grep runs against everything, so waiting on a notice still works."""
-    seen: dict[str, object] = {}
-
-    async def fake(
-        name: object,
-        args: object,
-        outcome: WatchOutcome,
-        group: object,
-        *,
-        replay: int,
-        stop_on_match: bool,
-        skip_notices: bool = True,
-    ) -> None:
-        seen["skip_notices"] = skip_notices
-
-    monkeypatch.setattr(wait_cmd, "follow_matching", fake)
-    args = argparse.Namespace(grep="Started", lines=None)
-    anyio.run(
-        wait_cmd._until_pattern_then_cancel,
-        "x.service",
-        args,
-        WatchOutcome(),
-        as_task_group(_Group()),
+    monkeypatch.setattr(wait_cmd, "resolve_existing", resolve)
+    monkeypatch.setattr(wait_cmd.sd, "wait_until_finished", finished)
+    monkeypatch.setattr(helpers.jr, "follow_lines", lines)
+    args = argparse.Namespace(
+        timeout=None, grep="Started", lines=None, json=False, scope=Scope.USER
     )
-    assert seen["skip_notices"] is False
+    assert anyio.run(wait_cmd.cmd_wait, BUS, args) == 0
+    captured = capsys.readouterr()
+    assert "Started x.service." in captured.out
+    assert "pattern matched" in captured.err
 
 
 @pytest.mark.parametrize(

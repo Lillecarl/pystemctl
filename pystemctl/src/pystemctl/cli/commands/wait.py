@@ -15,10 +15,10 @@ from ..helpers import (
     NoTimeout,
     WatchOutcome,
     exit_code_from,
-    follow_matching,
     jsonable,
     resolve_existing,
     timeout_note,
+    watch_unit,
 )
 
 DEFAULT_REPLAY = 200
@@ -31,11 +31,21 @@ async def cmd_wait(bus: Bus, args: argparse.Namespace) -> int:
     scope = anyio.move_on_after(args.timeout) if args.timeout is not None else NoTimeout()
     with scope:
         if args.grep:
-            # Whichever finishes first ends the wait: the pattern match, or the
-            # unit stopping. Whichever loses is cancelled by the group exit.
-            async with anyio.create_task_group() as group:
-                group.start_soon(_until_finished_then_cancel, bus, name, outcome, group)
-                group.start_soon(_until_pattern_then_cancel, name, args, outcome, group)
+            # Whichever finishes first ends the wait: the pattern match, or
+            # the unit stopping. The race cancels its loser inside watch_unit.
+            # A watcher usually attaches after the job starts, so replay
+            # recent output by default; starting at the tail would miss what
+            # already printed.
+            replay = args.lines if args.lines is not None else DEFAULT_REPLAY
+            await watch_unit(
+                bus,
+                name,
+                args,
+                outcome,
+                replay=replay,
+                stop_on_match=True,
+                skip_notices=False,
+            )
         else:
             outcome.props = await sd.wait_until_finished(bus, name)
 
@@ -46,30 +56,6 @@ async def cmd_wait(bus: Bus, args: argparse.Namespace) -> int:
     if not outcome.props:
         outcome.props = await sd.try_unit_properties(bus, name)
     return _report(args, name, outcome)
-
-
-async def _until_finished_then_cancel(
-    bus: Bus, name: str, outcome: WatchOutcome, group: anyio.abc.TaskGroup
-) -> None:
-    outcome.props = await sd.wait_until_finished(bus, name)
-    group.cancel_scope.cancel()
-
-
-async def _until_pattern_then_cancel(
-    name: str, args: argparse.Namespace, outcome: WatchOutcome, group: anyio.abc.TaskGroup
-) -> None:
-    # A watcher is usually attached after the job starts, so replay recent
-    # output by default; starting at the tail would miss what already printed.
-    replay = args.lines if args.lines is not None else DEFAULT_REPLAY
-    await follow_matching(
-        name,
-        args,
-        outcome,
-        group,
-        replay=replay,
-        stop_on_match=True,
-        skip_notices=False,
-    )
 
 
 def _report(args: argparse.Namespace, name: str, outcome: WatchOutcome) -> int:

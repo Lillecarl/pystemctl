@@ -16,10 +16,10 @@ from ..helpers import (
     NoTimeout,
     WatchOutcome,
     exit_code_from,
-    follow_matching,
     resolve_existing,
     timeout_note,
     unit_groups,
+    watch_unit,
 )
 
 DEFAULT_REPLAY = 200
@@ -41,10 +41,16 @@ async def cmd_tail(bus: Bus, args: argparse.Namespace) -> int:
 
     scope = anyio.move_on_after(args.timeout) if args.timeout is not None else NoTimeout()
     with scope:
-        async with anyio.create_task_group() as group:
-            group.start_soon(_stream, name, args, outcome, replay, group)
-            if not sd.unit_finished(props):
-                group.start_soon(_watch, bus, name, outcome, group)
+        await watch_unit(
+            bus,
+            name,
+            args,
+            outcome,
+            replay=replay,
+            stop_on_match=True,
+            skip_notices=args.grep is None,
+            watch_finish=not sd.unit_finished(props),
+        )
 
     if args.timeout is not None and getattr(scope, "cancelled_caught", False):
         # A bounded follow that runs out of time did not fail, but it did not
@@ -75,29 +81,6 @@ async def _replay(name: str, args: argparse.Namespace, replay: int) -> None:
         line = jr.format_entry(entry, "cat")
         if pattern is None or pattern.search(line):
             print(line, flush=True)
-
-
-async def _stream(
-    name: str,
-    args: argparse.Namespace,
-    outcome: WatchOutcome,
-    replay: int,
-    group: anyio.abc.TaskGroup,
-) -> None:
-    await follow_matching(
-        name,
-        args,
-        outcome,
-        group,
-        replay=replay,
-        stop_on_match=True,
-        skip_notices=args.grep is None,
-    )
-
-
-async def _watch(bus: Bus, name: str, outcome: WatchOutcome, group: anyio.abc.TaskGroup) -> None:
-    outcome.props = await sd.wait_until_finished(bus, name)
-    group.cancel_scope.cancel()
 
 
 def _report(args: argparse.Namespace, name: str, outcome: WatchOutcome) -> int:

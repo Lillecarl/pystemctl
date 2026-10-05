@@ -8,6 +8,7 @@ import json
 import sys
 from collections.abc import Sequence
 from dataclasses import dataclass, field
+from functools import partial
 from typing import Any
 
 import anyio
@@ -327,15 +328,58 @@ async def follow_matching(
     async for line in jr.follow_lines(
         system_units=system_units,
         user_units=user_units,
-        pattern=args.grep,
+        pattern=getattr(args, "grep", None),
         mode="json" if getattr(args, "json", False) else "cat",
         since_lines=replay,
         skip_notices=skip_notices,
     ):
         print(line, flush=True)
-        if args.grep:
+        if getattr(args, "grep", None):
             outcome.matched = True
             if stop_on_match:
                 group.cancel_scope.cancel()
                 return
+    group.cancel_scope.cancel()
+
+
+async def watch_unit(
+    bus: Bus,
+    name: str,
+    args: argparse.Namespace,
+    outcome: WatchOutcome,
+    *,
+    replay: int,
+    stop_on_match: bool,
+    skip_notices: bool,
+    watch_finish: bool = True,
+) -> None:
+    """Race the unit finishing against its journal stream, in a group owned here.
+
+    The stream prints output and records a pattern match; the finish side
+    records the final properties. Whichever wins cancels the other, so a
+    match ends the wait early and a stop ends the stream. An outer timeout
+    still cancels the race from outside. Skip the finish side when the unit
+    is already done: there is nothing to wait for.
+    """
+    async with anyio.create_task_group() as group:
+        group.start_soon(
+            partial(
+                follow_matching,
+                name,
+                args,
+                outcome,
+                group,
+                replay=replay,
+                stop_on_match=stop_on_match,
+                skip_notices=skip_notices,
+            )
+        )
+        if watch_finish:
+            group.start_soon(_watch_finished, bus, name, outcome, group)
+
+
+async def _watch_finished(
+    bus: Bus, name: str, outcome: WatchOutcome, group: anyio.abc.TaskGroup
+) -> None:
+    outcome.props = await sd.wait_until_finished(bus, name)
     group.cancel_scope.cancel()

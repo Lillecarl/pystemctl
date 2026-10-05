@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 from collections.abc import AsyncIterator
+from functools import partial
 from typing import Any
 
 import anyio
@@ -99,3 +100,126 @@ def test_resolve_existing_without_a_trace_is_not_found(
     _resolve_setup(monkeypatch, {"LoadState": "not-found"}, trace=False)
     with pytest.raises(UnitNotFoundError, match="not found"):
         anyio.run(helpers.resolve_existing, BUS, argparse.Namespace())
+
+
+def _watch_args(**overrides: object) -> argparse.Namespace:
+    values: dict[str, object] = {"grep": None, "json": False, "scope": Scope.USER}
+    values.update(overrides)
+    return argparse.Namespace(**values)
+
+
+def _watch_lines(
+    monkeypatch: pytest.MonkeyPatch,
+    lines: list[str],
+    seen: dict[str, object] | None = None,
+    hang: bool = True,
+) -> None:
+    """Fake the journal stream; hanging afterwards models a running unit."""
+
+    async def fake(**kwargs: object) -> AsyncIterator[str]:
+        if seen is not None:
+            seen.update(kwargs)
+        for line in lines:
+            yield line
+        if hang:
+            await anyio.sleep(30)
+
+    monkeypatch.setattr(helpers.jr, "follow_lines", fake)
+
+
+def _watch_finished(monkeypatch: pytest.MonkeyPatch, hang: bool = False) -> None:
+    async def finished(bus: object, name: str) -> dict[str, object]:
+        if hang:
+            await anyio.sleep(30)
+        return {"Result": "success", "ActiveState": "inactive", "ExecMainStatus": 0}
+
+    monkeypatch.setattr(helpers.sd, "wait_until_finished", finished)
+
+
+def test_watch_unit_finished_side_ends_the_stream(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    _watch_lines(monkeypatch, ["hello"])
+    _watch_finished(monkeypatch)
+    outcome = helpers.WatchOutcome()
+    watch = partial(
+        helpers.watch_unit,
+        BUS,
+        "x.service",
+        _watch_args(),
+        outcome,
+        replay=10,
+        stop_on_match=False,
+        skip_notices=True,
+    )
+    anyio.run(watch)
+    assert capsys.readouterr().out == "hello\n"
+    assert outcome.props["Result"] == "success"
+
+
+def test_watch_unit_match_ends_the_finished_side(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    _watch_lines(monkeypatch, ["READY"])
+    _watch_finished(monkeypatch, hang=True)
+    outcome = helpers.WatchOutcome()
+
+    async def _main() -> None:
+        with anyio.fail_after(5):
+            await helpers.watch_unit(
+                BUS,
+                "x.service",
+                _watch_args(grep="READY"),
+                outcome,
+                replay=10,
+                stop_on_match=True,
+                skip_notices=False,
+            )
+
+    anyio.run(_main)
+    assert outcome.matched
+    assert capsys.readouterr().out == "READY\n"
+
+
+def test_watch_unit_forwards_replay_and_notice_flag(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    seen: dict[str, object] = {}
+    _watch_lines(monkeypatch, ["hello"], seen)
+    _watch_finished(monkeypatch)
+    watch = partial(
+        helpers.watch_unit,
+        BUS,
+        "x.service",
+        _watch_args(grep="hello"),
+        helpers.WatchOutcome(),
+        replay=7,
+        stop_on_match=True,
+        skip_notices=False,
+    )
+    anyio.run(watch)
+    assert seen["since_lines"] == 7
+    assert seen["pattern"] == "hello"
+    assert seen["skip_notices"] is False
+    capsys.readouterr()
+
+
+def test_watch_unit_without_finish_side_returns_when_the_stream_ends(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    _watch_lines(monkeypatch, ["a", "b"], hang=False)
+    outcome = helpers.WatchOutcome()
+    watch = partial(
+        helpers.watch_unit,
+        BUS,
+        "x.service",
+        _watch_args(),
+        outcome,
+        replay=10,
+        stop_on_match=True,
+        skip_notices=True,
+        watch_finish=False,
+    )
+    anyio.run(watch)
+    assert capsys.readouterr().out.splitlines() == ["a", "b"]
+    assert outcome.props == {}
