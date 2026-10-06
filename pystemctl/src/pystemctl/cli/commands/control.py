@@ -10,7 +10,7 @@ from ... import systemd as sd
 from ...bus import Bus
 from ...errors import UnitNotFoundError, is_no_such_unit
 from ..args import UnitsArgs
-from ..helpers import note_foreign_session
+from ..helpers import has_journal_trace, note_foreign_session
 from ..output import emit_json, warn
 
 _Action = Callable[[Bus, str], Awaitable[str]]
@@ -70,10 +70,15 @@ async def cmd_rm(bus: Bus, args: UnitsArgs) -> int:
         name = sd.normalize_unit_name(raw)
         props = await sd.try_unit_properties(bus, name)
         if not props or props.get("LoadState") == "not-found":
-            # Gone is gone, whether the journal remembers it or not: removing
-            # something that does not exist is an error, the way rm(1) treats
-            # a missing file. Success here would hide a typo behind a cleanup
-            # that never happened.
+            if await has_journal_trace(name, args.scope):
+                # Ran before, collected since: the end state rm ensures
+                # already holds, so this is success. A name with no journal
+                # trace below stays an error: that is a typo, and success
+                # there would hide a cleanup that never happened.
+                removed.append({"unit": name, "removed": True})
+                if not args.json:
+                    warn(f"{name}: already finished and was collected; nothing to remove.")
+                continue
             message = str(UnitNotFoundError(name))
             removed.append({"unit": name, "removed": False, "error": message})
             if not args.json:

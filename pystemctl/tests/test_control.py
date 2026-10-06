@@ -58,10 +58,18 @@ def test_unit_action_keeps_other_errors_verbatim(
     assert "boom" in capsys.readouterr().err
 
 
+def _journal_trace(monkeypatch: pytest.MonkeyPatch, found: bool) -> None:
+    async def fake(name: str, scope: object) -> bool:
+        return found
+
+    monkeypatch.setattr(control_cmd, "has_journal_trace", fake)
+
+
 def test_rm_reports_a_unit_that_was_never_there(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     _properties(monkeypatch, {})
+    _journal_trace(monkeypatch, False)
     args = UnitsArgs(units=["ghost"], json=False)
     code = anyio.run(control_cmd.cmd_rm, BUS, args)
     assert code == 1
@@ -70,18 +78,38 @@ def test_rm_reports_a_unit_that_was_never_there(
     assert "Removed" not in captured.out
 
 
-def test_rm_fails_on_a_unit_that_is_already_gone(
+def test_rm_succeeds_on_a_unit_that_is_already_gone(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    # A collected unit is not loaded, so there is nothing to remove: like
-    # rm(1) on a missing file, that is an error, not a quiet success.
+    # A collected unit ran before, so forgetting it is already done: success
+    # with a note, not an error. Teardown that races collection stays quiet.
     _properties(monkeypatch, {"LoadState": "not-found"})
+    _journal_trace(monkeypatch, True)
     args = UnitsArgs(units=["old.service"], json=False)
     code = anyio.run(control_cmd.cmd_rm, BUS, args)
-    assert code == 1
+    assert code == 0
     captured = capsys.readouterr()
-    assert "not found" in captured.err
+    assert "nothing to remove" in captured.err
     assert "Removed" not in captured.out
+
+
+def test_rm_still_fails_a_typo_beside_a_gone_unit(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    # Idempotence must not hide a typo: the collected name succeeds and the
+    # never-ran one still fails the run.
+    _properties(monkeypatch, {"LoadState": "not-found"})
+
+    async def fake(name: str, scope: object) -> bool:
+        return name == "old.service"
+
+    monkeypatch.setattr(control_cmd, "has_journal_trace", fake)
+    args = UnitsArgs(units=["old.service", "ghost"], json=False)
+    code = anyio.run(control_cmd.cmd_rm, BUS, args)
+    assert code == 1
+    err = capsys.readouterr().err
+    assert "nothing to remove" in err
+    assert "not found" in err
 
 
 def test_stop_warns_about_another_sessions_unit(
