@@ -9,12 +9,14 @@ import anyio
 from ... import journal as jr
 from ... import systemd as sd
 from ...bus import Bus
+from ...errors import PystemctlError, UnitNotFoundError
 from ..args import TailArgs
 from ..helpers import (
     TIMEOUT_EXIT_CODE,
     NoTimeout,
     WatchOutcome,
     exit_code_from,
+    recovered_exit_code,
     resolve_existing,
     timeout_note,
     unit_groups,
@@ -26,7 +28,25 @@ DEFAULT_REPLAY = 200
 
 
 async def cmd_tail(bus: Bus, args: TailArgs) -> int:
-    target, props = await resolve_existing(bus, args)
+    try:
+        target, props = await resolve_existing(bus, args)
+    except UnitNotFoundError:
+        raise
+    except PystemctlError as error:
+        # Dead unit: replay what the journal holds, then report with the
+        # live meanings. grep answers matched-or-not; otherwise the
+        # recovered code, or 0 for an explicit -f stream.
+        recovered = await recovered_exit_code(args)
+        if recovered is None:
+            raise
+        name, code = recovered
+        replay = args.lines if args.lines is not None else DEFAULT_REPLAY
+        matched = await _replay(name, args, replay)
+        if args.grep is not None:
+            return 0 if matched else 1
+        if not args.json:
+            warn(str(error))
+        return code if args.until_exit else 0
     name = target.name
 
     outcome = WatchOutcome(props=props)
@@ -68,20 +88,28 @@ async def cmd_tail(bus: Bus, args: TailArgs) -> int:
     return _report(args, name, outcome)
 
 
-async def _replay(name: str, args: TailArgs, replay: int) -> None:
-    """Print the last ``replay`` lines and return, like a plain tail."""
+async def _replay(name: str, args: TailArgs, replay: int) -> int:
+    """Print the last ``replay`` lines and return, like a plain tail.
+
+    Returns how many printed lines matched, so a caller replaying a dead
+    unit can answer grep the way the live follow does.
+    """
     system_units, user_units = unit_groups([name], args.scope)
     pattern = re.compile(args.grep) if args.grep else None
     reader = jr.open_reader(system_units=system_units, user_units=user_units)
+    matched = 0
     async for entry in jr.entries(reader, tail=replay, skip_notices=True):
         if args.json:
             # A whole entry, so a caller gets fields the plain line drops.
             if pattern is None or pattern.search(jr.message_text(entry)):
                 print(jr.format_entry(entry, "json"), flush=True)
+                matched += 1
             continue
         line = jr.format_entry(entry, "cat")
         if pattern is None or pattern.search(line):
             print(line, flush=True)
+            matched += 1
+    return matched
 
 
 def _report(args: TailArgs, name: str, outcome: WatchOutcome) -> int:

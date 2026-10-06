@@ -12,6 +12,7 @@ from pystemctl.cli import helpers
 from pystemctl.cli.args import TailArgs, WatchArgs
 from pystemctl.cli.commands import tail as tail_cmd
 from pystemctl.cli.helpers import Target, TargetHow, WatchOutcome
+from pystemctl.errors import PystemctlError
 
 
 @pytest.mark.parametrize(
@@ -155,6 +156,7 @@ def _stall_tail(monkeypatch: pytest.MonkeyPatch) -> None:
 
 def _tail_args(grep: str | None = None, until_exit: bool = False) -> TailArgs:
     return TailArgs(
+        unit="x.service",
         lines=None,
         follow=True,
         until_exit=until_exit,
@@ -163,6 +165,105 @@ def _tail_args(grep: str | None = None, until_exit: bool = False) -> TailArgs:
         json=False,
         scope=Scope.USER,
     )
+
+
+def _bare_tail_args(grep: str | None = None) -> TailArgs:
+    # What from_namespace builds without -f: follow until the end by default.
+    return TailArgs(
+        unit="x.service",
+        lines=None,
+        follow=False,
+        until_exit=True,
+        grep=grep,
+        timeout=0.05,
+        json=False,
+        scope=Scope.USER,
+    )
+
+
+def _collected_tail(monkeypatch: pytest.MonkeyPatch, journal: list[dict[str, object]]) -> None:
+    """Fail resolution as collected, serve the given journal for replay."""
+
+    async def resolve(bus: object, args: object) -> tuple[Target, dict[str, object]]:
+        raise PystemctlError("Unit x.service already finished and was collected")
+
+    async def entries(reader: object, **kwargs: object) -> AsyncIterator[dict[str, object]]:
+        for entry in journal:
+            yield entry
+
+    monkeypatch.setattr(tail_cmd, "resolve_existing", resolve)
+    monkeypatch.setattr(helpers.jr, "open_reader", lambda **kwargs: object())
+    monkeypatch.setattr(helpers.jr, "entries", entries)
+
+
+def _manager_line(message: str) -> dict[str, object]:
+    return {"SYSLOG_IDENTIFIER": "systemd", "MESSAGE": message}
+
+
+def _program_line(message: str) -> dict[str, object]:
+    return {"SYSLOG_IDENTIFIER": "bash", "MESSAGE": message}
+
+
+def test_tail_replays_a_collected_unit_and_reports_its_code(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    _collected_tail(
+        monkeypatch,
+        [
+            _program_line("hello"),
+            _manager_line("Started x.service."),
+            _manager_line("x.service: Main process exited, code=exited, status=3/NOTIMPLEMENTED"),
+            _manager_line("x.service: Failed with result 'exit-code'."),
+        ],
+    )
+    code = anyio.run(tail_cmd.cmd_tail, BUS, _bare_tail_args())
+    assert code == 3
+    captured = capsys.readouterr()
+    assert "hello" in captured.out
+    assert "already finished and was collected" in captured.err
+
+
+def test_tail_reports_zero_for_a_clean_collected_unit(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _collected_tail(monkeypatch, [_manager_line("Started x.service.")])
+    assert anyio.run(tail_cmd.cmd_tail, BUS, _bare_tail_args()) == 0
+
+
+def test_tail_grep_on_a_collected_unit_answers_matched_or_not(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    journal = [
+        _program_line("all good"),
+        _manager_line("Started x.service."),
+    ]
+    _collected_tail(monkeypatch, journal)
+    assert anyio.run(tail_cmd.cmd_tail, BUS, _bare_tail_args(grep="good")) == 0
+    _collected_tail(monkeypatch, journal)
+    assert anyio.run(tail_cmd.cmd_tail, BUS, _bare_tail_args(grep="ERROR")) == 1
+
+
+def test_tail_follow_on_a_collected_unit_streams_without_judging(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Explicit -f keeps the plain stream, which always exits 0.
+    _collected_tail(
+        monkeypatch,
+        [
+            _manager_line("Started x.service."),
+            _manager_line("x.service: Main process exited, code=exited, status=3/NOTIMPLEMENTED"),
+            _manager_line("x.service: Failed with result 'exit-code'."),
+        ],
+    )
+    assert anyio.run(tail_cmd.cmd_tail, BUS, _tail_args()) == 0
+
+
+def test_tail_keeps_the_error_without_a_journal_verdict(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _collected_tail(monkeypatch, [])
+    with pytest.raises(PystemctlError, match="already finished and was collected"):
+        anyio.run(tail_cmd.cmd_tail, BUS, _bare_tail_args())
 
 
 def test_tail_until_exit_on_a_stopped_unit_returns_without_following(
