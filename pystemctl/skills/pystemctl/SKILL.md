@@ -91,10 +91,10 @@ pystemctl logs --tag deploy -n 100        # unit name not needed
 `wait`'s exit code IS the unit's: no exit files needed. Read it with `; echo`
 after the command, never through a pipe (`| tail` reports tail's code).
 `--timeout 0` checks without waiting (124 still running, else the code).
-Arriving late: 1 with "already finished and was collected" means the unit
-is gone but its logs survive; 4 means that name never ran. A collected
-unit's exit code died with it — `wait` cannot report it, only `logs` reads
-what is left.
+Arriving late: `wait` reads a collected unit's exit notice from the
+journal, so the code still comes back (0 clean, N the unit's own failure,
+1 for signals and other manager-side failures). 4 means that name never
+ran and there is nothing to read.
 
 One call instead, when the result is the next thing and the wait fits in one
 tool call: `tail` resolves once, streams the output, and exits with the
