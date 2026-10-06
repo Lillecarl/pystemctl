@@ -23,6 +23,7 @@ from .jobs import Job, collect_jobs, resolve
 from .transient import (
     TransientSpec,
     build_transient_properties,
+    coerce_property_value,
     generate_unit_name,
     replace_transient,
     resolve_executable,
@@ -48,6 +49,7 @@ __all__ = [
     "TransientSpec",
     "Unit",
     "build_transient_properties",
+    "coerce_property_value",
     "collect_jobs",
     "describe_unit",
     "disable_unit",

@@ -5,10 +5,20 @@ from functools import partial
 from typing import Any
 
 import anyio
+import pytest
 from jeepney.wrappers import DBusErrorResponse
 
+from pystemctl import profiles
 from pystemctl.bus import Bus, watch_properties
-from pystemctl.systemd import generate_unit_name, normalize_unit_name, unit_active_state, wait_job
+from pystemctl.cli.helpers import parse_property
+from pystemctl.errors import PystemctlError
+from pystemctl.systemd import (
+    coerce_property_value,
+    generate_unit_name,
+    normalize_unit_name,
+    unit_active_state,
+    wait_job,
+)
 
 
 def test_normalize_appends_service() -> None:
@@ -144,3 +154,28 @@ def test_properties_stream_decodes_changed_values() -> None:
 
     assert anyio.run(_main) == {"Result": "success", "ActiveState": "active"}
     assert bus.matches == 1
+
+
+@pytest.mark.parametrize(
+    ("typename", "toml_value", "cli_text", "expected"),
+    [
+        ("b", True, "yes", True),
+        ("b", False, "no", False),
+        ("i", 5, "5", 5),
+        ("as", ["a", "b"], "a,b", ["a", "b"]),
+        ("s", "x", "x", "x"),
+    ],
+)
+def test_property_spellings_agree(
+    typename: str, toml_value: object, cli_text: str, expected: object
+) -> None:
+    """A TOML value and its --property string mean the same typed value."""
+    assert profiles._typed_property("K", toml_value) == ("K", (typename, expected))
+    assert parse_property(f"K:{typename}={cli_text}") == ("K", (typename, expected))
+
+
+def test_property_coercion_rejects_garbage_loudly() -> None:
+    with pytest.raises(PystemctlError, match="must be a number"):
+        coerce_property_value("i", "abc")
+    with pytest.raises(PystemctlError, match="unsupported property type"):
+        parse_property("K:zzz=1")

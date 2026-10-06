@@ -66,6 +66,38 @@ def generate_unit_name(command: Sequence[str]) -> str:
     return f"pystemctl-{slug}-{secrets.token_hex(3)}.service"
 
 
+def coerce_property_value(typename: str, value: object) -> Any:
+    """Coerce a property value to its D-Bus type, or fail loudly.
+
+    The single meaning of every type name, shared by ``--property`` strings
+    and profile tables so the two spellings can never disagree.
+    """
+    if typename == "b":
+        if isinstance(value, bool):
+            return value
+        return str(value).lower() in {"1", "true", "yes", "on"}
+    if typename in {"i", "u", "t"}:
+        if isinstance(value, bool):
+            raise PystemctlError(f"property value must be a number, not {value!r}")
+        if isinstance(value, int):
+            return value
+        try:
+            return int(str(value))
+        except ValueError:
+            raise PystemctlError(
+                f"property value must be a number for type {typename}: {value!r}"
+            ) from None
+    if typename == "as":
+        if isinstance(value, str):
+            return [part for part in value.split(",") if part]
+        if isinstance(value, (list, tuple)):
+            return [str(item) for item in value]
+        raise PystemctlError(f"property value must be a list for type as: {value!r}")
+    if typename == "s":
+        return value if isinstance(value, str) else str(value)
+    raise PystemctlError(f"unsupported property type: {typename!r}")
+
+
 def resolve_executable(command: str) -> str:
     if os.path.sep in command:
         path = os.path.abspath(command)

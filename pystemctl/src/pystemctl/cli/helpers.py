@@ -149,23 +149,14 @@ def strip_separator(command: Sequence[str]) -> list[str]:
 
 
 def parse_property(text: str) -> tuple[str, tuple[str, Any]]:
+    """Split a ``NAME=VALUE`` or ``NAME:type=VALUE`` command-line property."""
     name, separator, value = text.partition("=")
     if not separator:
         raise PystemctlError(f"property must be NAME=VALUE: {text!r}")
     typename = "s"
     if ":" in name:
         name, _, typename = name.partition(":")
-    if typename == "b":
-        typed: Any = value.lower() in {"1", "true", "yes", "on"}
-    elif typename in {"i", "u", "t"}:
-        typed = int(value)
-    elif typename == "as":
-        typed = [part for part in value.split(",") if part]
-    elif typename == "s":
-        typed = value
-    else:
-        raise PystemctlError(f"unsupported property type: {typename!r}")
-    return name, (typename, typed)
+    return name, (typename, sd.coerce_property_value(typename, value))
 
 
 def parse_environment(items: Sequence[str]) -> dict[str, str]:

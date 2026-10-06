@@ -20,6 +20,7 @@ from typing import TYPE_CHECKING, Any, Literal
 from platformdirs import site_config_dir, user_config_dir
 
 from .errors import PystemctlError
+from .systemd.transient import coerce_property_value
 
 if TYPE_CHECKING:
     from .cli.args import RunArgs
@@ -134,13 +135,16 @@ def _profile_from_table(name: str, table: Mapping[str, Any], path: Path) -> Prof
 
 
 def _typed_property(name: str, value: Any) -> tuple[str, Any]:
+    """Name a TOML value's D-Bus type, coercing through the shared path."""
     if isinstance(value, bool):
-        return name, ("b", value)
-    if isinstance(value, int):
-        return name, ("i", value)
-    if isinstance(value, list):
-        return name, ("as", [str(item) for item in value])
-    return name, ("s", str(value))
+        typename = "b"
+    elif isinstance(value, int):
+        typename = "i"
+    elif isinstance(value, list):
+        typename = "as"
+    else:
+        typename = "s"
+    return name, (typename, coerce_property_value(typename, value))
 
 
 def resolve_environment(
