@@ -48,7 +48,9 @@ job is kept (so its exit status stays readable) and an untagged job is
 collected once it stops.
 
 `--wait` streams the command's output to stdout in text mode, then prints
-the unit name to stderr; `--json` keeps a single payload on stdout.
+the unit name to stderr; `--json` keeps a single payload on stdout. `run
+--wait` has no timeout of its own: bound it with `--runtime-max`, which
+terminates the unit on expiry.
 
 ## Unit lifecycle and inspection
 
@@ -88,6 +90,9 @@ pystemctl logs --tag deploy -n 100        # unit name not needed
 
 `wait`'s exit code IS the unit's: no exit files needed. Read it with `; echo`
 after the command, never through a pipe (`| tail` reports tail's code).
+`--timeout 0` checks without waiting (124 still running, else the code).
+Arriving late: 3 means the unit is gone but its logs survive, 4 means that
+name never ran.
 
 One call instead, when the result is the next thing and the wait fits in one
 tool call: `tail` resolves once, streams the output, and exits with the
