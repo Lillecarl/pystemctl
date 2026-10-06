@@ -37,7 +37,7 @@ pystemctl run --setenv KEY=VALUE --property MemoryMax=1G -- ./app
 ```
 
 Key flags: `--unit NAME`, `--profile NAME`, `--description/-d`,
-`--working-directory/-D`, `--setenv/-E KEY=VALUE` (repeatable),
+`--working-directory/--dir/-D`, `--setenv/-E KEY=VALUE` (repeatable),
 `--clean` (empty environment), `--property/-P NAME=VALUE` (repeatable), `--type simple|exec|oneshot|idle`,
 `--remain-after-exit`, `--collect` / `--no-collect`, `--replace`,
 `--no-block`, `--wait`, `--runtime-max SECONDS`, `--nice N`, `--slice SLICE`,
@@ -75,24 +75,32 @@ tools) stay hidden unless `--all-transient` is passed. Filter by tag
 finishes or a log line matches. `tail` follows output until the unit stops
 or a line matches.
 
-The long-run loop: start tagged, wait in bounded chunks, then read the logs.
-`run` prints the unit name; keep it for `logs` and `status`.
+The default long-run loop: start tagged, then alternate bounded waits and
+log reads. Size `--timeout` under your tool-call limit (about 90 second
+chunks); a longer wait dies with the call and teaches nothing.
 
 ```sh
 pystemctl run --tag deploy -- ./build.sh   # prints pystemctl-build-xxxx.service
-pystemctl wait --tag deploy --timeout 300  # 0 done, 124 still running, else the unit's exit
-pystemctl jobs --tag deploy                # same agent session
+pystemctl wait --tag deploy --timeout 90; echo rc=$?   # 0 done, 124 still running, else the unit's exit
 pystemctl logs --tag deploy -n 100        # unit name not needed
 ```
 
-One call instead of wait-then-logs: `tail --until-exit` resolves once,
-streams the output, and exits with the unit's code (124 past `--timeout`).
-Redirect when the stream is not wanted; the code is what matters.
+`wait`'s exit code IS the unit's: no exit files needed. Read it with `; echo`
+after the command, never through a pipe (`| tail` reports tail's code).
+
+One call instead, when the result is the next thing and the wait fits in one
+tool call: `tail --until-exit` resolves once, streams the output, and exits
+with the unit's code (124 past `--timeout`). Redirect when the stream is not
+wanted; the code is what matters.
 
 ```sh
 pystemctl tail --tag deploy --until-exit --timeout 300        # stream + exit code
 pystemctl tail --tag deploy --until-exit --timeout 300 >/dev/null  # only the exit code
 ```
+
+Watching a quiet log for one line: `wait --tag deploy --grep READY
+--timeout 90` returns early on the match instead of sleeping and re-reading.
+Piping `logs` into grep: add `-o cat` for plain text without ANSI escapes.
 
 `tail` needs the unit loaded: on one already finished and collected it
 says so and points at `logs`, which reads the journal that outlives it.
@@ -117,7 +125,8 @@ pystemctl tail --tag deploy --grep ERROR --until-exit
 Target selector for `wait` / `tail` / `logs` / `status`: positional `UNIT`
 or `--tag/-T TAG`. `logs` and `status` also take several units. A tag keeps
 working after the job finishes and its unit unloads: tags ride along in the
-journal, so the newest tagged entry resolves the name.
+journal, so the newest tagged entry resolves the name — `wait --tag` on a
+finished job still returns its exit code.
 
 ## Logs and journal
 
@@ -181,8 +190,8 @@ resolves it at completion time.
   --tag` still reads a collected job's output but `wait` / `status` lose
   its exit status. `--no-collect` and `--tag` only skip that unloading,
   they do not pin the unit: `wait` promptly or use `--wait` when the exit
-  code matters. (`wait` on a `--remain-after-exit` unit currently hangs;
-  read its result with `status` or `logs` instead.)
+   code matters. (`wait` on a `--remain-after-exit` unit returns its code like
+   any other; read it with `wait`, not `status`.)
 - `stop` / `rm` name the owning session on stderr when the unit is another
   session's; `logs` fails on a name that never ran instead of printing
   nothing, and `status` says "could not be found" for those.
