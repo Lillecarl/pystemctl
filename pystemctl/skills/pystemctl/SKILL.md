@@ -85,6 +85,19 @@ pystemctl jobs --tag deploy                # same agent session
 pystemctl logs --tag deploy -n 100        # unit name not needed
 ```
 
+One call instead of wait-then-logs: `tail --until-exit` resolves once,
+streams the output, and exits with the unit's code (124 past `--timeout`).
+Redirect when the stream is not wanted; the code is what matters.
+
+```sh
+pystemctl tail --tag deploy --until-exit --timeout 300        # stream + exit code
+pystemctl tail --tag deploy --until-exit --timeout 300 >/dev/null  # only the exit code
+```
+
+`tail` needs the unit loaded: on one already finished and collected it
+says so and points at `logs`, which reads the journal that outlives it.
+`logs` alone never reports an exit code; the code died with the unit.
+
 Sessions: `run` stamps the invoking agent session on the job. `jobs` lists
 that session by default and falls back to every session when the scoped
 answer is empty, saying so on stderr. `--any-session` skips the filter;

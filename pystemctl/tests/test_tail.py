@@ -165,6 +165,32 @@ def _tail_args(grep: str | None = None, until_exit: bool = False) -> TailArgs:
     )
 
 
+def test_tail_until_exit_on_a_stopped_unit_returns_without_following(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A dead unit's replay prints and the stream ends; it never follows."""
+    seen: dict[str, object] = {}
+
+    async def lines(**kwargs: object) -> AsyncIterator[str]:
+        seen.update(kwargs)
+        return
+        yield  # pragma: no cover -- makes this an empty async generator
+
+    async def resolve(bus: object, args: object) -> tuple[Target, dict[str, object]]:
+        props: dict[str, object] = {
+            "ActiveState": "failed",
+            "Type": "service",
+            "Result": "exit-code",
+            "ExecMainStatus": 3,
+        }
+        return Target("x.service", TargetHow.EXPLICIT), props
+
+    monkeypatch.setattr(tail_cmd, "resolve_existing", resolve)
+    monkeypatch.setattr(helpers.jr, "follow_lines", lines)
+    assert anyio.run(tail_cmd.cmd_tail, BUS, _tail_args(until_exit=True)) == 3
+    assert seen["follow"] is False
+
+
 def test_tail_until_exit_timeout_is_not_success(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:

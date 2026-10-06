@@ -297,6 +297,7 @@ async def follow_matching(
     replay: int,
     stop_on_match: bool,
     skip_notices: bool = True,
+    live: bool = True,
 ) -> None:
     """Stream a unit's output into stdout, recording a pattern match.
 
@@ -305,7 +306,8 @@ async def follow_matching(
     recorded. The pattern is matched against each entry's MESSAGE, so --grep
     means the same thing whatever the output mode is. A set pattern matches
     the manager's lifecycle lines too, so waiting on an expected notice
-    still works; without one they stay hidden.
+    still works; without one they stay hidden. With ``live`` off the replay
+    prints and the stream ends, for units already stopped.
     """
     system_units, user_units = unit_groups([name], args.scope)
     async for line in jr.follow_lines(
@@ -315,6 +317,7 @@ async def follow_matching(
         mode="json" if args.json else "cat",
         since_lines=replay,
         skip_notices=skip_notices,
+        follow=live,
     ):
         print(line, flush=True)
         if args.grep:
@@ -342,7 +345,8 @@ async def watch_unit(
     records the final properties. Whichever wins cancels the other, so a
     match ends the wait early and a stop ends the stream. An outer timeout
     still cancels the race from outside. Skip the finish side when the unit
-    is already done: there is nothing to wait for.
+    is already done: there is nothing to wait for, and the stream then ends
+    after the replay instead of following a dead unit forever.
     """
     async with anyio.create_task_group() as group:
         group.start_soon(
@@ -355,6 +359,7 @@ async def watch_unit(
                 replay=replay,
                 stop_on_match=stop_on_match,
                 skip_notices=skip_notices,
+                live=watch_finish,
             )
         )
         if watch_finish:
