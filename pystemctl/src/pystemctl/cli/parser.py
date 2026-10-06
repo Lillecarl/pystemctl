@@ -4,11 +4,13 @@ from __future__ import annotations
 
 import argparse
 import os
+import shutil
 from collections.abc import Awaitable, Callable, Iterable, Sequence
 from typing import Protocol, cast
 
 from .. import journal as jr
 from ..bus import Bus, Scope
+from ..systemd.units import UNIT_SUFFIXES
 from . import commands
 from .args import (
     BaseArgs,
@@ -153,34 +155,19 @@ def _executable_completer(prefix: str = "", parsed_args: object = None, **_: obj
     words = getattr(parsed_args, "command", None) or []
     if words:
         return []
-    found: set[str] = set()
+    names: set[str] = set()
     for directory in os.environ.get("PATH", "").split(os.pathsep):
         try:
             entries = os.listdir(directory)
         except OSError:
             continue
-        for entry in entries:
-            if not entry.startswith(prefix):
-                continue
-            path = os.path.join(directory, entry)
-            if os.path.isfile(path) and os.access(path, os.X_OK):
-                found.add(entry)
-    return sorted(found)
+        names.update(entry for entry in entries if entry.startswith(prefix))
+    # The same lookup run itself uses, so a suggestion never names something
+    # the run would reject as not executable.
+    return sorted(name for name in names if shutil.which(name) is not None)
 
 
-_UNIT_TYPES = [
-    "service",
-    "socket",
-    "device",
-    "mount",
-    "automount",
-    "swap",
-    "target",
-    "path",
-    "timer",
-    "slice",
-    "scope",
-]
+_UNIT_TYPES = [suffix.removeprefix(".") for suffix in UNIT_SUFFIXES]
 
 _ACTIVE_STATES = ["active", "inactive", "failed", "activating", "deactivating"]
 
@@ -198,8 +185,6 @@ _FILE_STATES = [
     "generated",
     "transient",
 ]
-
-_PRIORITIES = ["emerg", "alert", "crit", "err", "warning", "notice", "info", "debug"]
 
 _SERVICE_PROPERTIES = [
     "CPUQuota",
@@ -245,7 +230,7 @@ def _from_list(values: Sequence[str]) -> Callable[..., list[str]]:
 _unit_type_completer = _from_list(_UNIT_TYPES)
 _unit_state_completer = _from_list(_ACTIVE_STATES)
 _unit_file_state_completer = _from_list(_FILE_STATES)
-_priority_completer = _from_list(_PRIORITIES)
+_priority_completer = _from_list(jr.PRIORITY_NAMES)
 _service_property_completer = _from_list(_SERVICE_PROPERTIES)
 
 

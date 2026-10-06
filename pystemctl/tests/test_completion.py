@@ -30,8 +30,9 @@ from pystemctl.cli.parser import (
     build_parser,
     register_completers,
 )
+from pystemctl.journal.timestamps import PRIORITY_NAMES
 from pystemctl.systemd.jobs import Job
-from pystemctl.systemd.units import Unit
+from pystemctl.systemd.units import UNIT_SUFFIXES, Unit
 
 
 def test_argcomplete_marker_present() -> None:
@@ -279,3 +280,8 @@ def test_static_completers_filter_by_prefix() -> None:
     assert "enabled" in _unit_file_state_completer("")
     assert "active" in _unit_state_completer("")
     assert "MemoryMax" in _service_property_completer("Memory")
+
+
+def test_completion_lists_track_their_sources() -> None:
+    assert _unit_type_completer("") == [suffix.removeprefix(".") for suffix in UNIT_SUFFIXES]
+    assert _priority_completer("") == list(PRIORITY_NAMES)
