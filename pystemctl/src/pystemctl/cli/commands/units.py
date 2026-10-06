@@ -10,6 +10,7 @@ from ...errors import UnitNotFoundError
 from ...render import format_table, format_unit_status
 from ..args import ListArgs, ListFilesArgs, StatusArgs
 from ..helpers import (
+    exit_code_from_journal,
     has_journal_trace,
     resolve_many,
     unit_payload,
@@ -87,6 +88,10 @@ async def cmd_status(bus: Bus, args: StatusArgs) -> int:
             exit_code = max(exit_code, 3 if trace else 4)
             if args.json:
                 payload = unit_payload_from_props(name, props)
+                if trace:
+                    recovered = await exit_code_from_journal(name, args.scope)
+                    if recovered is not None:
+                        payload["exit_code"] = recovered
                 if not args.no_journal:
                     payload["journal"] = await journal_tail(name, args.lines, args.scope)
                 emit_json(payload)
@@ -95,7 +100,12 @@ async def cmd_status(bus: Bus, args: StatusArgs) -> int:
                 print(UnitNotFoundError(name))
                 continue
             print(f"- {name}")
-            print("  Collected: finished and unloaded; the result is gone, its logs follow.")
+            recovered = await exit_code_from_journal(name, args.scope)
+            if recovered is None:
+                print("  Collected: finished and unloaded; the result is gone, its logs follow.")
+            else:
+                print(f"  Collected: finished and unloaded; exit code {recovered}.")
+                print("  Its logs follow.")
             if not args.no_journal:
                 for line in await journal_tail(name, args.lines, args.scope):
                     print(f"    {line}")

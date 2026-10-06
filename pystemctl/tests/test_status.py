@@ -46,18 +46,42 @@ def _trace(monkeypatch: pytest.MonkeyPatch, found: bool) -> None:
     monkeypatch.setattr(units_cmd, "has_journal_trace", fake)
 
 
+def _recovered(monkeypatch: pytest.MonkeyPatch, code: int | None) -> None:
+    async def fake(name: str, scope: object) -> int | None:
+        return code
+
+    monkeypatch.setattr(units_cmd, "exit_code_from_journal", fake)
+
+
 def test_status_explains_a_collected_unit(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     _properties(monkeypatch, {"LoadState": "not-found", "ActiveState": "inactive"})
     _trace(monkeypatch, True)
+    _recovered(monkeypatch, 3)
     _journal(monkeypatch, ["hello"])
     code = anyio.run(units_cmd.cmd_status, BUS, _args(units=["gone.service"]))
     assert code == 3
     out = capsys.readouterr().out
     assert "Collected" in out
+    assert "exit code 3" in out
     assert "not-found" not in out
     assert "hello" in out
+
+
+def test_status_collected_unit_without_a_verdict_keeps_the_old_note(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    # Program output without a manager line leaves nothing to read: the
+    # result really is gone, so say that instead of inventing a code.
+    _properties(monkeypatch, {"LoadState": "not-found", "ActiveState": "inactive"})
+    _trace(monkeypatch, True)
+    _recovered(monkeypatch, None)
+    _journal(monkeypatch, ["hello"])
+    code = anyio.run(units_cmd.cmd_status, BUS, _args(units=["gone.service"]))
+    assert code == 3
+    out = capsys.readouterr().out
+    assert "the result is gone" in out
 
 
 def test_status_still_reports_a_loaded_unit(
@@ -83,6 +107,7 @@ def test_status_collected_unit_json_carries_logs(
 ) -> None:
     _properties(monkeypatch, {"LoadState": "not-found", "ActiveState": "inactive"})
     _trace(monkeypatch, True)
+    _recovered(monkeypatch, 3)
     _journal(monkeypatch, ["hello"])
     code = anyio.run(units_cmd.cmd_status, BUS, _args(units=["gone.service"], json=True))
     assert code == 3
@@ -90,6 +115,7 @@ def test_status_collected_unit_json_carries_logs(
     assert payload["journal"] == ["hello"]
     assert payload["load_state"] == "not-found"
     assert payload["active_state"] == "inactive"
+    assert payload["exit_code"] == 3
     assert "load" not in payload
     assert "active" not in payload
     assert "sub" not in payload
