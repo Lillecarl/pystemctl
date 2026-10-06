@@ -111,9 +111,10 @@ Watching a quiet log for one line: `wait --tag deploy --grep READY
 --timeout 90` returns early on the match instead of sleeping and re-reading.
 Piping `logs` into grep: add `-o cat` for plain text without ANSI escapes.
 
-`tail` needs the unit loaded: on one already finished and collected it
-says so and points at `logs`, which reads the journal that outlives it.
-`logs` alone never reports an exit code; the code died with the unit.
+`tail` works on a finished and collected unit too: it replays what the
+journal holds and reports the recovered code, same as live. Only a name
+that never ran fails (4) and points nowhere; `logs` reads any past lines
+either way, but never reports a code.
 
 Sessions: `run` stamps the invoking agent session on the job. `jobs` lists
 that session by default and falls back to every session when the scoped
