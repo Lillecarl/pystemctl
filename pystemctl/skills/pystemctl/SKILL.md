@@ -72,8 +72,9 @@ skip logs.
 `jobs` lists pystemctl's own jobs; other transient units (scopes, other
 tools) stay hidden unless `--all-transient` is passed. Filter by tag
 (newest job carrying every tag) or session. `wait` blocks until a unit
-finishes or a log line matches. `tail` follows output until the unit stops
-or a line matches.
+finishes or a log line matches. `tail` streams a unit's output until it
+stops and exits with its code; `-f` streams with exit 0 instead, for
+pipelines. `logs -n` peeks at past lines without waiting.
 
 The default long-run loop: start tagged, then alternate bounded waits and
 log reads. Size `--timeout` under your tool-call limit (about 90 second
@@ -89,13 +90,14 @@ pystemctl logs --tag deploy -n 100        # unit name not needed
 after the command, never through a pipe (`| tail` reports tail's code).
 
 One call instead, when the result is the next thing and the wait fits in one
-tool call: `tail --until-exit` resolves once, streams the output, and exits
-with the unit's code (124 past `--timeout`). Redirect when the stream is not
-wanted; the code is what matters.
+tool call: `tail` resolves once, streams the output, and exits with the
+unit's code (124 past `--timeout`). `--until-exit` spells the default out;
+`-f` streams with exit 0; redirect when the stream is not wanted.
 
 ```sh
-pystemctl tail --tag deploy --until-exit --timeout 300        # stream + exit code
-pystemctl tail --tag deploy --until-exit --timeout 300 >/dev/null  # only the exit code
+pystemctl tail --tag deploy --timeout 300                  # stream + exit code
+pystemctl tail --tag deploy --until-exit --timeout 300     # same, explicit
+pystemctl tail --tag deploy --timeout 300 >/dev/null       # only the exit code
 ```
 
 Watching a quiet log for one line: `wait --tag deploy --grep READY
