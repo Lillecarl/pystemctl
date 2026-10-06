@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import datetime as dt
 import enum
+import re
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 from functools import partial
@@ -286,6 +287,74 @@ def exit_code_from(props: dict[str, Any]) -> int:
     if result == "exit-code" and isinstance(status, int) and status:
         return status
     return 0 if result in (None, "success") else 1
+
+
+_MANAGER_EXIT_PATTERN = re.compile(r"Main process exited, code=exited, status=(\d+)/")
+_MANAGER_FAILED_PATTERN = re.compile(r"Failed with result '")
+_MANAGER_STARTED_PATTERN = re.compile(r"^Started\b")
+
+#: How many of a collected unit's last lines the exit recovery reads. The
+#: failure notice is always among the last lines of a life: nothing the unit
+#: runs can log after its main process exits.
+_RECOVERY_TAIL = 50
+
+
+async def exit_code_from_journal(name: str, scope: Scope) -> int | None:
+    """Recover a collected unit's exit code from the manager's journal lines.
+
+    None when the journal holds no manager line for the name: without the
+    manager's verdict there is nothing to read, and the caller keeps its
+    not-found error. Otherwise the last life decides: an explicit exit
+    status carries its number, any other recorded failure maps to 1 the way
+    exit_code_from maps signals, and no failure line at all means the unit
+    finished clean. Only the manager's own lines count; program output is
+    not the verdict on the run.
+    """
+    system_units, user_units = unit_groups([name], scope)
+    reader = jr.open_reader(system_units=system_units, user_units=user_units)
+    seen = False
+    status: int | None = None
+    failed = False
+    async for entry in jr.entries(reader, tail=_RECOVERY_TAIL, skip_notices=False):
+        if entry.get("SYSLOG_IDENTIFIER") != "systemd":
+            continue
+        seen = True
+        text = jr.message_text(entry)
+        if _MANAGER_STARTED_PATTERN.search(text):
+            status, failed = None, False
+        elif match := _MANAGER_EXIT_PATTERN.search(text):
+            status = int(match.group(1))
+        elif _MANAGER_FAILED_PATTERN.search(text):
+            failed = True
+    if not seen:
+        return None
+    if status is not None:
+        return status
+    return 1 if failed else 0
+
+
+async def recovered_exit_code(args: SingleTargetArgs) -> tuple[str, int] | None:
+    """Name and exit code for a target the manager already unloaded.
+
+    wait resolves a finished job's tag through the journal; the bus
+    properties died with the unit, but the manager's exit notice survives in
+    the same journal. None when nothing ran under the name, so the caller
+    keeps its not-found error.
+    """
+    if args.unit:
+        name = sd.normalize_unit_name(args.unit)
+    elif args.tags:
+        try:
+            found = await jr.newest_unit_for_tags(args.tags, system=args.scope is Scope.SYSTEM)
+        except PystemctlError:
+            return None
+        if found is None:
+            return None
+        name = found
+    else:  # Unreachable: the resolve that failed got this far already.
+        return None
+    code = await exit_code_from_journal(name, args.scope)
+    return (name, code) if code is not None else None
 
 
 async def follow_matching(

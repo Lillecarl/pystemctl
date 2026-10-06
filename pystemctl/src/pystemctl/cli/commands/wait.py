@@ -6,12 +6,14 @@ import anyio
 
 from ... import systemd as sd
 from ...bus import Bus
+from ...errors import PystemctlError, UnitNotFoundError
 from ..args import WaitArgs
 from ..helpers import (
     TIMEOUT_EXIT_CODE,
     NoTimeout,
     WatchOutcome,
     exit_code_from,
+    recovered_exit_code,
     resolve_existing,
     timeout_note,
     watch_unit,
@@ -22,7 +24,35 @@ DEFAULT_REPLAY = 200
 
 
 async def cmd_wait(bus: Bus, args: WaitArgs) -> int:
-    target, _ = await resolve_existing(bus, args)
+    try:
+        target, _ = await resolve_existing(bus, args)
+    except UnitNotFoundError:
+        raise
+    except PystemctlError as error:
+        # The manager unloaded the unit. A --grep wait cannot match the
+        # past, so it keeps the error; an outcome wait reads the manager's
+        # exit notice from the journal instead.
+        if args.grep is not None:
+            raise
+        recovered = await recovered_exit_code(args)
+        if recovered is None:
+            raise
+        name, code = recovered
+        if args.json:
+            emit_json(
+                {
+                    "unit": name,
+                    "active_state": "inactive",
+                    "result": None,
+                    "exit_status": None,
+                    "matched": False,
+                    "collected": True,
+                    "exit_code": code,
+                }
+            )
+        else:
+            warn(str(error))
+        return code
     name = target.name
 
     outcome = WatchOutcome()

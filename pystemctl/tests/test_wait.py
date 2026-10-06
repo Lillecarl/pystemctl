@@ -14,6 +14,7 @@ from pystemctl.cli.args import WaitArgs
 from pystemctl.cli.commands import wait as wait_cmd
 from pystemctl.cli.commands.wait import _report, _report_timeout
 from pystemctl.cli.helpers import Target, TargetHow, WatchOutcome
+from pystemctl.errors import PystemctlError
 
 
 def _args(json_mode: bool = False) -> WaitArgs:
@@ -90,6 +91,78 @@ def test_report_json_carries_the_exit_code(capsys: pytest.CaptureFixture[str]) -
     assert payload["exit_status"] == 9
     assert "status" not in payload
     assert code == 9
+
+
+def _collected_journal(monkeypatch: pytest.MonkeyPatch, messages: list[str]) -> None:
+    """Fail resolution as collected, serve the given manager lines."""
+
+    async def resolve(bus: object, args: object) -> tuple[Target, dict[str, object]]:
+        raise PystemctlError("Unit x.service already finished and was collected")
+
+    async def entries(reader: object, **kwargs: object) -> AsyncIterator[dict[str, object]]:
+        for message in messages:
+            yield {"SYSLOG_IDENTIFIER": "systemd", "MESSAGE": message}
+
+    monkeypatch.setattr(wait_cmd, "resolve_existing", resolve)
+    monkeypatch.setattr(helpers.jr, "open_reader", lambda **kwargs: object())
+    monkeypatch.setattr(helpers.jr, "entries", entries)
+
+
+def test_wait_recovers_the_collected_exit_code(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    _collected_journal(
+        monkeypatch,
+        [
+            "Started x.service.",
+            "x.service: Main process exited, code=exited, status=3/NOTIMPLEMENTED",
+            "x.service: Failed with result 'exit-code'.",
+        ],
+    )
+    code = anyio.run(wait_cmd.cmd_wait, BUS, WaitArgs(unit="x.service"))
+    assert code == 3
+    assert "already finished and was collected" in capsys.readouterr().err
+
+
+def test_wait_recovers_zero_for_a_clean_collected_unit(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # A success logs nothing but its start: no failure line means clean.
+    _collected_journal(monkeypatch, ["Started x.service."])
+    assert anyio.run(wait_cmd.cmd_wait, BUS, WaitArgs(unit="x.service")) == 0
+
+
+def test_wait_recovers_one_for_a_signalled_unit(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Signals carry no exit number, so they map to 1 like exit_code_from maps them.
+    _collected_journal(
+        monkeypatch,
+        [
+            "Started x.service.",
+            "x.service: Main process exited, code=killed, status=15/TERM",
+            "x.service: Failed with result 'signal'.",
+        ],
+    )
+    assert anyio.run(wait_cmd.cmd_wait, BUS, WaitArgs(unit="x.service")) == 1
+
+
+def test_wait_keeps_the_error_without_a_journal_verdict(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _collected_journal(monkeypatch, [])
+    with pytest.raises(PystemctlError, match="already finished and was collected"):
+        anyio.run(wait_cmd.cmd_wait, BUS, WaitArgs(unit="x.service"))
+
+
+def test_wait_grep_on_a_collected_unit_still_fails(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # A --grep wait cannot match the past, so it keeps the error even when
+    # the journal could answer the outcome.
+    _collected_journal(monkeypatch, ["Started x.service."])
+    with pytest.raises(PystemctlError, match="already finished and was collected"):
+        anyio.run(wait_cmd.cmd_wait, BUS, WaitArgs(unit="x.service", grep="READY"))
 
 
 def test_wait_matches_lifecycle_notices(
