@@ -9,11 +9,12 @@ import pytest
 from jeepney.wrappers import DBusErrorResponse
 
 from pystemctl import profiles
-from pystemctl.bus import Bus, watch_properties
+from pystemctl.bus import UNIT_INTERFACE, Bus, watch_properties
 from pystemctl.cli.helpers import parse_property
 from pystemctl.errors import PystemctlError
 from pystemctl.systemd import (
     coerce_property_value,
+    collect_jobs,
     generate_unit_name,
     normalize_unit_name,
     unit_active_state,
@@ -179,3 +180,42 @@ def test_property_coercion_rejects_garbage_loudly() -> None:
         coerce_property_value("i", "abc")
     with pytest.raises(PystemctlError, match="unsupported property type"):
         parse_property("K:zzz=1")
+
+
+def _list_row(name: str, active: str = "active") -> tuple[object, ...]:
+    return (name, "d", "loaded", active, "running", "", f"/{name}", 0, "", "")
+
+
+class _RecordingBus(Bus):
+    """A manager scripted with unit properties, recording every read."""
+
+    def __init__(self, rows: list[tuple[object, ...]], props: dict[str, dict[str, Any]]):
+        self._rows = rows
+        self._props = props
+        self.reads: list[tuple[str, str]] = []
+
+    async def manager(self, *args: Any, **kwargs: Any) -> Any:
+        return (self._rows,)
+
+    async def get_all(self, path: str, interface: str) -> dict[str, Any]:
+        self.reads.append((path, interface))
+        if interface == UNIT_INTERFACE:
+            return dict(self._props.get(path, {}))
+        return {}
+
+
+def test_collect_reads_full_properties_only_for_matches() -> None:
+    rows = [_list_row("plain.service"), _list_row("job.service")]
+    props = {
+        "/plain.service": {"Transient": False},
+        "/job.service": {"Transient": True, "Environment": []},
+    }
+    bus = _RecordingBus(rows, props)
+    collect = partial(collect_jobs, bus, session=None, include_inactive=True)
+    jobs = anyio.run(collect)
+    assert [job.name for job in jobs] == ["job.service"]
+    unit_reads = [read for read in bus.reads if read[1] == UNIT_INTERFACE]
+    type_reads = [read for read in bus.reads if read[1] != UNIT_INTERFACE]
+    # One filter read per candidate; the full describe re-reads the match.
+    assert len(unit_reads) == 3
+    assert len(type_reads) == 1
