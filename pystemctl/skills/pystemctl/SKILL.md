@@ -29,54 +29,42 @@ values; `--clean` starts empty instead. A `--profile` run keeps whitelist
 semantics: only its `inherit_env` patterns plus fixed `env` carry over.
 
 ```sh
-pystemctl run --wait -- sleep 5
-pystemctl run --tag deploy --session abc -- ./build.sh
-pystemctl run --profile gpu --nice 10 --slice batch.slice -- python train.py
-pystemctl run --unit my-job --remain-after-exit --no-collect -- ./job.sh
-pystemctl run --setenv KEY=VALUE --property MemoryMax=1G -- ./app
+pystemctl run --tag deploy -- ./build.sh
+pystemctl run --tag deploy --profile gpu -- ./train.py
+pystemctl run --tag deploy --setenv KEY=VALUE --property MemoryMax=1G -- ./app
 ```
 
-Key flags: `--unit NAME`, `--profile NAME`, `--description/-d`,
-`--working-directory/--dir/-D`, `--setenv/-E KEY=VALUE` (repeatable),
-`--clean` (empty environment), `--property/-P NAME=VALUE` (repeatable), `--type simple|exec|oneshot|idle`,
-`--remain-after-exit`, `--collect` / `--no-collect`, `--replace`,
-`--no-block`, `--wait`, `--runtime-max SECONDS`, `--nice N`, `--slice SLICE`,
-`--shell` (run through `sh -c`), `--tag/-T TAG` (repeatable), `--session ID`.
+Everything else (`--unit`, `--slice`, `--nice`, `--shell`, `--replace`,
+`--no-block`, …) is in `run --help`. Three rules matter:
 
-Collect rule: explicit `--collect` / `--no-collect` wins. Otherwise a tagged
-job is kept (so its exit status stays readable) and an untagged job is
-collected once it stops.
-
-`--wait` streams the command's output to stdout in text mode, then prints
-the unit name to stderr; `--json` keeps a single payload on stdout. `run
---wait` has no timeout of its own: bound it with `--runtime-max`, which
-terminates the unit on expiry.
+- Tag every job you will wait on later: the tag resolves the unit after it
+  finishes, when its generated name is already unloaded.
+- A tag does not pin the unit. Successful units unload within about a
+  second whether tagged or not; the tag rides along in the journal, so
+  `wait` / `tail` / `logs --tag` keep working and the first two still
+  report the exit code.
+- `--wait` streams the command's output to stdout and prints the unit name
+  to stderr; it has no timeout of its own, so bound it with `--runtime-max`,
+  which terminates the unit on expiry.
 
 ## Unit lifecycle and inspection
 
-```sh
-pystemctl status myunit.service -n 20
-pystemctl start|stop|restart|reload UNIT...
-pystemctl rm UNIT...              # stop and forget transient units
-pystemctl is-active|is-failed|is-enabled UNIT...
-pystemctl enable|disable UNIT...
-pystemctl cat UNIT...             # show unit file contents
-pystemctl daemon-reload
-pystemctl list --all --type service --state running
-pystemctl list-unit-files --type service
-```
+systemctl parity throughout: `start` / `stop` / `restart` / `reload`,
+`is-active` / `is-failed` / `is-enabled`, `enable` / `disable`, `cat`,
+`daemon-reload`, `list`, `list-unit-files`, `show`. pystemctl-only:
 
-`status` takes `-n/--lines N` for recent log replay and `--no-journal` to
-skip logs.
+```sh
+pystemctl rm UNIT...              # stop and forget transient units; already-collected succeeds
+pystemctl status myunit.service -n 20   # -n replays recent logs, --no-journal skips them
+pystemctl show -P ActiveState,Result myunit.service   # comma-joins like systemctl -p
+```
 
 ## Jobs, wait, tail
 
-`jobs` lists pystemctl's own jobs; other transient units (scopes, other
-tools) stay hidden unless `--all-transient` is passed. Filter by tag
-(newest job carrying every tag) or session. `wait` blocks until a unit
-finishes or a log line matches. `tail` streams a unit's output until it
-stops and exits with its code; `-f` streams with exit 0 instead, for
-pipelines. `logs -n` peeks at past lines without waiting.
+`jobs` lists pystemctl's own jobs by tag (newest carrying every tag) or
+session. `wait` blocks until a unit finishes or a log line matches.
+`tail` streams a unit's output until it stops and exits with its code;
+`logs -n` peeks at past lines without waiting.
 
 The default long-run loop: start tagged, then alternate bounded waits and
 log reads. Size `--timeout` under your tool-call limit (about 90 second
@@ -90,71 +78,43 @@ pystemctl logs --tag deploy -n 100        # unit name not needed
 
 `wait`'s exit code IS the unit's: no exit files needed. Read it with `; echo`
 after the command, never through a pipe (`| tail` reports tail's code).
-`--timeout 0` checks without waiting (124 still running, else the code).
-Arriving late: `wait` reads a collected unit's exit notice from the
-journal, so the code still comes back (0 clean, N the unit's own failure,
-1 for signals and other manager-side failures). 4 means that name never
-ran and there is nothing to read.
+`--timeout 0` checks without waiting. Arriving late still works: `wait`
+reads a collected unit's exit notice from the journal (0 clean, N the
+unit's own failure, 1 for signals), and only a name that never ran fails
+with 4.
 
 One call instead, when the result is the next thing and the wait fits in one
-tool call: `tail` resolves once, streams the output, and exits with the
-unit's code (124 past `--timeout`). `--until-exit` spells the default out;
-`-f` streams with exit 0; redirect when the stream is not wanted.
+tool call: `tail` resolves once, streams, and exits with the unit's code
+(124 past `--timeout`).
 
 ```sh
-pystemctl tail --tag deploy --timeout 300                  # stream + exit code
-pystemctl tail --tag deploy --until-exit --timeout 300     # same, explicit
-pystemctl tail --tag deploy --timeout 300 >/dev/null       # only the exit code
+pystemctl tail --tag deploy --timeout 300              # stream + exit code
+pystemctl tail --tag deploy --timeout 300 >/dev/null   # only the exit code
 ```
 
-Watching a quiet log for one line: `wait --tag deploy --grep READY
---timeout 90` returns early on the match instead of sleeping and re-reading.
-Piping `logs` into grep: add `-o cat` for plain text without ANSI escapes.
-
-`tail` works on a finished and collected unit too: it replays what the
-journal holds and reports the recovered code, same as live. Only a name
-that never ran fails (4) and points nowhere; `logs` reads any past lines
-either way, but never reports a code.
+`-f` streams with exit 0 instead, for pipelines. Watching a quiet log for
+one line: `wait --tag deploy --grep READY --timeout 90` returns early on
+the match instead of sleeping and re-reading. Piping `logs` into grep: add
+`-o cat` for plain text without ANSI escapes.
 
 Sessions: `run` stamps the invoking agent session on the job. `jobs` lists
 that session by default and falls back to every session when the scoped
 answer is empty, saying so on stderr. `--any-session` skips the filter;
-`--session ID` selects one. `wait` / `tail` by tag resolve across sessions,
-newest match wins.
-
-```sh
-pystemctl jobs --tag deploy --any-session
-pystemctl jobs --all --any-session
-pystemctl jobs --follow
-pystemctl wait myunit.service --timeout 30 --grep READY --lines 200
-pystemctl wait --tag deploy --timeout 60
-pystemctl tail myunit.service -n 200 -f
-pystemctl tail --tag deploy --grep ERROR --until-exit
-```
-
-Target selector for `wait` / `tail` / `logs` / `status`: positional `UNIT`
-or `--tag/-T TAG`. `logs` and `status` also take several units. A tag keeps
-working after the job finishes and its unit unloads: tags ride along in the
-journal, so the newest tagged entry resolves the name — `wait --tag` on a
-finished job still returns its exit code.
+`--session ID` selects one. By tag, `wait` / `tail` / `logs` / `status`
+resolve across sessions, newest match wins — and a tag keeps working after
+the job's unit unloads, because tags ride along in the journal.
 
 ## Logs and journal
 
 ```sh
-pystemctl logs myunit.service -n 50 --since '2026-01-01' -o cat
-pystemctl logs myunit.service -f -p info -b
-pyjournalctl -u myunit.service --user-unit other.service -n 100 -o short-precise
+pystemctl logs myunit.service -n 50 -o cat
 pyjournalctl --since '-1h' -p err --json
 ```
 
-Shared log flags: `-n/--lines N`, `--since`, `--until`, `-p/--priority LEVEL`,
-`-b/--boot [ID]`, `-o/--output short|short-iso|short-precise|short-full|cat|json|json-pretty|verbose`,
-`-f/--follow`. Without `-n`, the last 10 lines replay (all of them with
-`--since` and no `--follow`).
-
-pystemctl log views show the program's output, not the manager's
-Started/Stopped lifecycle lines; `pyjournalctl` shows everything, and
-`--json` keeps every field.
+Time, priority, boot, and output flags match journalctl (`--since`,
+`--until`, `-p`, `-b`, `-o`, `-f`; full list in `--help`). Without `-n`,
+the last 10 lines replay. pystemctl log views show the program's output,
+not the manager's Started/Stopped lines; `pyjournalctl` shows everything.
 
 ## Profiles
 
@@ -165,19 +125,10 @@ over the profile.
 ```toml
 [profiles.gpu]
 description = "GPU batch job"
-inherit_env = ["PATH", "CUDA_*", "HF_*"]
-env = { PYTHONUNBUFFERED = "1" }
-working_directory_mode = "caller"  # caller | static | as-is
-# working_directory = "/srv/jobs"  # with mode static or as-is
-unit_type = "oneshot"
+inherit_env = ["PATH", "CUDA_*"]
+working_directory_mode = "caller"
 tags = ["gpu"]
-slice = "batch.slice"
-nice = 10
 runtime_max = 3600.0
-remain_after_exit = true
-collect = false
-[profiles.gpu.properties]
-MemoryMax = "8G"
 ```
 
 ```sh
@@ -185,31 +136,15 @@ pystemctl profile list
 pystemctl profile show gpu
 ```
 
-Profile completion for `--profile` comes from these files; argcomplete
-resolves it at completion time.
-
 ## Notes
 
-- Bare runs inherit the caller's environment; a missing var there means
-  `--clean` was passed or a profile's `inherit_env` glob does not cover it.
 - With `--system`, unit environments are visible on the system bus. Do not
   run secrets through env there unless every local user may read them.
-- A finished job has two lifetimes. The manager unloads a successful unit
-  within about a second unless it is still running, failed, or kept with
-  `--remain-after-exit`; only the journal entries survive that, so `logs
-  --tag` still reads a collected job's output but `wait` / `status` lose
-  its exit status. `--no-collect` and `--tag` only skip that unloading,
-  they do not pin the unit: `wait` promptly or use `--wait` when the exit
-   code matters. (`wait` on a `--remain-after-exit` unit returns its code like
-   any other; read it with `wait`, not `status`.)
+- A finished job has two lifetimes: the manager unloads a successful unit
+  within about a second, and only the journal entries survive that. Tags
+  ride along in the journal, so `wait` / `tail` / `logs --tag` keep working
+  and `wait` / `tail` / `status` still report the exit code.
 - `stop` / `rm` name the owning session on stderr when the unit is another
   session's; `logs` fails on a name that never ran instead of printing
-  nothing, and `status` says "could not be found" for those.
+  nothing.
 - Prefer `--json` plus `show -P` when scripting over `status` text.
-- Lint and typecheck with `nix run --file . lint -- check` from the
-  repository (`fix` autofixes what ruff can); `nix build` runs the same
-  checks in the sandbox, so a red gate fails the build.
-- Shell completion (bash, zsh, fish) completes subcommands, unit names
-  and files, tags, sessions, slices, env keys, priorities, and property
-  names from live state. A failed manager lookup completes nothing rather
-  than erroring.
