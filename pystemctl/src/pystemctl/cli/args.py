@@ -278,6 +278,9 @@ class TailArgs(WatchArgs):
 
     @classmethod
     def from_namespace(cls, ns: argparse.Namespace) -> TailArgs:
+        # A unit's output has an end, and the end is the interesting event:
+        # following until it stops and reporting its code is the default.
+        # Explicit -f keeps the plain stream, which always exits 0.
         return cls(
             scope=ns.scope,
             json=ns.json,
@@ -287,7 +290,7 @@ class TailArgs(WatchArgs):
             lines=ns.lines,
             timeout=ns.timeout,
             follow=ns.follow,
-            until_exit=ns.until_exit,
+            until_exit=ns.until_exit or not ns.follow,
         )
 
 

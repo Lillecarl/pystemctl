@@ -6,7 +6,7 @@ import dataclasses
 import pytest
 
 from pystemctl.bus import Scope
-from pystemctl.cli.args import JournalArgs, RunArgs, ShowArgs
+from pystemctl.cli.args import JournalArgs, RunArgs, ShowArgs, TailArgs
 from pystemctl.cli.commands.run import strip_separator
 from pystemctl.cli.parser import build_journal_parser, build_parser
 
@@ -80,6 +80,19 @@ def test_run_tag_is_repeatable(parser: argparse.ArgumentParser) -> None:
 def test_run_dir_is_a_working_directory_alias(parser: argparse.ArgumentParser) -> None:
     args = _parse(parser, ["run", "--dir", "/srv/jobs", "--", "true"])
     assert args.working_directory == "/srv/jobs"
+
+
+def test_tail_follows_until_exit_by_default(parser: argparse.ArgumentParser) -> None:
+    # Bare tail streams to the end and reports the code; explicit -f keeps
+    # the plain stream, which always exits 0.
+    assert TailArgs.from_namespace(_parse(parser, ["tail", "x.service"])).until_exit is True
+    assert (
+        TailArgs.from_namespace(_parse(parser, ["tail", "--until-exit", "x.service"])).until_exit
+        is True
+    )
+    explicit = TailArgs.from_namespace(_parse(parser, ["tail", "-f", "x.service"]))
+    assert explicit.follow is True
+    assert explicit.until_exit is False
 
 
 def test_run_command_is_remainder(parser: argparse.ArgumentParser) -> None:

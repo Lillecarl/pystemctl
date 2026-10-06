@@ -471,7 +471,7 @@ def build_parser() -> argparse.ArgumentParser:
     tail.add_argument(
         "--until-exit",
         action="store_true",
-        help="keep following until the unit stops, then return its exit status",
+        help="keep following until the unit stops, then return its exit status (default)",
     )
 
     profile = _add(
