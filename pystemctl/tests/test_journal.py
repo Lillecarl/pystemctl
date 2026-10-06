@@ -8,7 +8,8 @@ import anyio
 import pytest
 
 from pystemctl.errors import PystemctlError
-from pystemctl.journal import parse_timestamp, priority_value, unit_match_groups
+from pystemctl.journal import OUTPUT_MODES, parse_timestamp, priority_value, unit_match_groups
+from pystemctl.journal.formatting import format_entry
 from pystemctl.journal.reader import entries, is_manager_notice, message_text
 
 
@@ -174,3 +175,29 @@ def test_tail_with_until_reads_back_from_the_bound() -> None:
     # The old shape collected the newest two and dropped both past the
     # bound, printing nothing; the bound now scopes the collection.
     assert anyio.run(partial(_tail, 10, bound)) == ["line0", "line1", "line2"]
+
+
+def _entry(message: str, when: dt.datetime) -> dict[str, Any]:
+    return {
+        "MESSAGE": message,
+        "__REALTIME_TIMESTAMP": when,
+        "_HOSTNAME": "host",
+        "SYSLOG_IDENTIFIER": "prog",
+        "_PID": 7,
+    }
+
+
+def test_compact_mode_prints_time_only_for_today() -> None:
+    now = dt.datetime.now().astimezone().replace(microsecond=0)
+    line = format_entry(_entry("hello", now), "compact")
+    assert line == f"{now.strftime('%H%M%S')} host prog[7]: hello"
+
+
+def test_compact_mode_prints_date_plus_time_for_older_lines() -> None:
+    when = dt.datetime(2020, 1, 2, 3, 4, 5, tzinfo=dt.UTC)
+    line = format_entry(_entry("hello", when), "compact")
+    assert line.startswith("200102030405 host prog[7]: hello")
+
+
+def test_compact_is_a_real_output_mode() -> None:
+    assert "compact" in OUTPUT_MODES

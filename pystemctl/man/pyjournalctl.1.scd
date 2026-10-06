@@ -34,9 +34,11 @@ lifecycle lines that *pystemctl logs* filters out.
 *-b*, *--boot* [_ID_]
 	Only entries from a boot.
 
-*-o*, *--output short*|*short-iso*|*short-precise*|*short-full*|*cat*|*json*|*json-pretty*|*verbose*
+*-o*, *--output short*|*short-iso*|*short-precise*|*short-full*|*compact*|*cat*|*json*|*json-pretty*|*verbose*
 	Output format. *cat* prints plain message text, good for piping into
-	*grep*(1).
+	*grep*(1). *compact* stamps each line numerically, time alone
+	(*HHMMSS*) for today's entries and date plus time (*YYMMDDHHMMSS*)
+	for older ones.
 
 *-f*, *--follow*
 	Keep printing new lines as they arrive.

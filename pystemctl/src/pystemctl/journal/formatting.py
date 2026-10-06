@@ -16,6 +16,7 @@ OUTPUT_MODES = (
     "short-iso",
     "short-precise",
     "short-full",
+    "compact",
     "cat",
     "json",
     "json-pretty",
@@ -68,6 +69,13 @@ def format_entry(entry: dict[str, Any], mode: str) -> str:
         stamp = timestamp.strftime("%b %d %H:%M:%S.%f")
     elif mode == "short-full":
         stamp = timestamp.strftime("%a %Y-%m-%d %H:%M:%S %Z")
+    elif mode == "compact":
+        # Numeric and short enough to scan: time alone for today's lines,
+        # date plus time once the day is gone, like ls does with years.
+        if timestamp.date() == dt.datetime.now().astimezone().date():
+            stamp = timestamp.strftime("%H%M%S")
+        else:
+            stamp = timestamp.strftime("%y%m%d%H%M%S")
     else:
         stamp = timestamp.strftime("%b %d %H:%M:%S")
 

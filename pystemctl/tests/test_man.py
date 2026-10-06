@@ -52,3 +52,11 @@ def test_every_documented_flag_still_exists() -> None:
     for page, text in pages.items():
         for flag in set(_LONG_FLAG.findall(text)):
             assert f"--{flag}" in known, f"{page}: --{flag}"
+
+
+def test_every_output_mode_is_documented() -> None:
+    from pystemctl.journal import OUTPUT_MODES
+
+    text = _pages()["pyjournalctl"]
+    for mode in OUTPUT_MODES:
+        assert mode in text, mode

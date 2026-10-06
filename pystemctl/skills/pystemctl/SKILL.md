@@ -95,7 +95,9 @@ pystemctl tail --tag deploy --timeout 300 >/dev/null   # only the exit code
 `-f` streams with exit 0 instead, for pipelines. Watching a quiet log for
 one line: `wait --tag deploy --grep READY --timeout 90` returns early on
 the match instead of sleeping and re-reading. Piping `logs` into grep: add
-`-o cat` for plain text without ANSI escapes.
+`-o cat` for plain text without ANSI escapes. Judging when lines landed:
+`-o compact` stamps each line, time alone (*HHMMSS*) for today's entries
+and date plus time (*YYMMDDHHMMSS*) for older ones.
 
 Sessions: `run` stamps the invoking agent session on the job. `jobs` lists
 that session by default and falls back to every session when the scoped
