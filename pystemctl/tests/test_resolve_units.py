@@ -4,7 +4,7 @@ from collections.abc import Sequence
 
 import anyio
 import pytest
-from conftest import BUS
+from conftest import BUS, make_job
 
 from pystemctl import systemd as sd
 from pystemctl.bus import Scope
@@ -14,26 +14,6 @@ from pystemctl.cli.helpers import Target, TargetHow
 from pystemctl.cli.parser import build_parser
 from pystemctl.errors import PystemctlError
 from pystemctl.systemd.jobs import Job
-from pystemctl.systemd.units import Unit
-
-
-def _unit(name: str) -> Unit:
-    return Unit(
-        name=name,
-        description="a job",
-        load_state="loaded",
-        active_state="active",
-        sub_state="running",
-        following="",
-        path="/org/freedesktop/systemd1/unit/x",
-        job_id=0,
-        job_type="",
-        job_path="",
-    )
-
-
-def _job(name: str) -> Job:
-    return Job(unit=_unit(name), tags=["t"], session=None, environment={}, props={})
 
 
 def _args(units: list[str] | None = None, tags: list[str] | None = None) -> MultiTargetArgs:
@@ -55,14 +35,14 @@ def _resolving(
 def test_units_only_are_normalized_without_touching_tags(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    _resolving(monkeypatch, _job("new.service"))
+    _resolving(monkeypatch, make_job("new.service"))
     assert anyio.run(helpers.resolve_many, BUS, _args(units=["web"])) == [
         Target("web.service", TargetHow.EXPLICIT)
     ]
 
 
 def test_tag_appends_the_newest_match(monkeypatch: pytest.MonkeyPatch) -> None:
-    _resolving(monkeypatch, _job("new.service"), [_job("old.service")])
+    _resolving(monkeypatch, make_job("new.service"), [make_job("old.service")])
     targets = anyio.run(helpers.resolve_many, BUS, _args(units=["web"], tags=["t"]))
     assert targets == [
         Target("web.service", TargetHow.EXPLICIT),
@@ -73,7 +53,7 @@ def test_tag_appends_the_newest_match(monkeypatch: pytest.MonkeyPatch) -> None:
 def test_other_matches_are_named_on_stderr(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    _resolving(monkeypatch, _job("new.service"), [_job("old.service")])
+    _resolving(monkeypatch, make_job("new.service"), [make_job("old.service")])
     anyio.run(helpers.resolve_many, BUS, _args(tags=["t"]))
     assert "old.service" in capsys.readouterr().err
 
@@ -103,7 +83,7 @@ def test_single_target_without_either_is_an_error() -> None:
 
 
 def test_single_target_reports_how_it_resolved(monkeypatch: pytest.MonkeyPatch) -> None:
-    _resolving(monkeypatch, _job("new.service"))
+    _resolving(monkeypatch, make_job("new.service"))
     args = SingleTargetArgs(unit=None, tags=["t"], scope=Scope.USER)
     assert anyio.run(helpers.resolve_one, BUS, args) == Target("new.service", TargetHow.TAG)
 

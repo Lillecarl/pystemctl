@@ -5,23 +5,13 @@ from functools import partial
 
 import anyio
 import pytest
-from conftest import BUS, as_task_group
+from conftest import BUS, FakeTaskGroup, as_task_group
 
 from pystemctl.bus import Scope
 from pystemctl.cli import helpers
 from pystemctl.cli.args import TailArgs, WatchArgs
 from pystemctl.cli.commands import tail as tail_cmd
 from pystemctl.cli.helpers import Target, TargetHow, WatchOutcome
-
-
-class _Scope:
-    def cancel(self) -> None:
-        pass
-
-
-class _Group:
-    def __init__(self) -> None:
-        self.cancel_scope = _Scope()
 
 
 @pytest.mark.parametrize(
@@ -78,7 +68,7 @@ def test_follow_matching_tolerates_commands_without_grep(
         "x.service",
         args,
         WatchOutcome(),
-        as_task_group(_Group()),
+        as_task_group(FakeTaskGroup()),
         replay=10,
         stop_on_match=False,
         skip_notices=True,
@@ -98,7 +88,7 @@ def test_follow_matching_forwards_the_flag(
         yield "hello"
 
     monkeypatch.setattr(helpers.jr, "follow_lines", fake)
-    group = as_task_group(_Group())
+    group = as_task_group(FakeTaskGroup())
     args = TailArgs(grep=None, json=False, scope=Scope.USER)
     watch = partial(
         helpers.follow_matching,
@@ -132,7 +122,7 @@ def test_follow_matching_skips_notices_by_default(
         "x.service",
         args,
         WatchOutcome(),
-        as_task_group(_Group()),
+        as_task_group(FakeTaskGroup()),
         replay=10,
         stop_on_match=False,
     )

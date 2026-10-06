@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any, cast
 
 import pytest
+from conftest import make_job, make_unit
 
 from pystemctl import cli
 from pystemctl.bus import Scope
@@ -166,30 +167,11 @@ def test_unit_completer_empty_on_bus_error(
     assert _unit_completer("a") == []
 
 
-def _unit_row(name: str) -> Unit:
-    return Unit(
-        name=name,
-        description="d",
-        load_state="loaded",
-        active_state="active",
-        sub_state="running",
-        following="",
-        path="/p",
-        job_id=0,
-        job_type="",
-        job_path="",
-    )
-
-
-def _named_job(tags: list[str], session: str | None) -> Job:
-    return Job(unit=_unit_row("job.service"), tags=tags, session=session, environment={}, props={})
-
-
 def test_tags_completer_collects_distinct_tags(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     async def fake(bus: Any, **kwargs: Any) -> list[Job]:
-        return [_named_job(["b", "a"], "s1"), _named_job(["a"], None)]
+        return [make_job(tags=["b", "a"], session="s1"), make_job(tags=["a"])]
 
     monkeypatch.setattr("pystemctl.systemd.jobs.collect_jobs", fake)
     _stub_connect(monkeypatch)
@@ -201,7 +183,7 @@ def test_session_completer_skips_missing(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     async def fake(bus: Any, **kwargs: Any) -> list[Job]:
-        return [_named_job([], "s2"), _named_job([], None), _named_job([], "s1")]
+        return [make_job(session="s2"), make_job(), make_job(session="s1")]
 
     monkeypatch.setattr("pystemctl.systemd.jobs.collect_jobs", fake)
     _stub_connect(monkeypatch)
@@ -224,7 +206,7 @@ def test_slice_completer_keeps_slices_only(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     async def fake(bus: Any) -> list[Unit]:
-        return [_unit_row("app.slice"), _unit_row("app.service")]
+        return [make_unit("app.slice"), make_unit("app.service")]
 
     monkeypatch.setattr("pystemctl.systemd.units.list_units", fake)
     _stub_connect(monkeypatch)

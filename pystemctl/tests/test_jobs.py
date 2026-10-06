@@ -5,71 +5,41 @@ from collections.abc import Sequence
 
 import anyio
 import pytest
-from conftest import BUS
+from conftest import BUS, make_job, make_unit
 
 from pystemctl.cli.args import JobsArgs
 from pystemctl.cli.commands import jobs as jobs_cmd
 from pystemctl.systemd.jobs import Job
-from pystemctl.systemd.units import Unit
-
-
-def _unit(
-    active_state: str = "active",
-    sub_state: str = "running",
-    name: str = "job.service",
-) -> Unit:
-    return Unit(
-        name=name,
-        description="a job",
-        load_state="loaded",
-        active_state=active_state,
-        sub_state=sub_state,
-        following="",
-        path="/org/freedesktop/systemd1/unit/job_2eservice",
-        job_id=0,
-        job_type="",
-        job_path="",
-    )
-
-
-def _job(session: str | None = None, name: str = "job.service", **props: object) -> Job:
-    return Job(
-        unit=_unit(name=name),
-        tags=[],
-        session=session,
-        environment={},
-        props=dict(props),
-    )
 
 
 def test_started_at_prefers_active_enter() -> None:
-    job = _job(ActiveEnterTimestamp=100, ExecMainStartTimestamp=50, StateChangeTimestamp=10)
+    job = make_job(ActiveEnterTimestamp=100, ExecMainStartTimestamp=50, StateChangeTimestamp=10)
     assert job.started_at == 100
 
 
 def test_started_at_falls_back_through_properties() -> None:
-    assert _job(StateChangeTimestamp=7).started_at == 7
-    assert _job(ExecMainStartTimestamp=9).started_at == 9
+    assert make_job(StateChangeTimestamp=7).started_at == 7
+    assert make_job(ExecMainStartTimestamp=9).started_at == 9
 
 
 def test_started_at_ignores_missing_and_non_int() -> None:
-    assert _job().started_at == 0
-    assert _job(ActiveEnterTimestamp=None, StateChangeTimestamp="x").started_at == 0
+    assert make_job().started_at == 0
+    assert make_job(ActiveEnterTimestamp=None, StateChangeTimestamp="x").started_at == 0
 
 
 def test_main_pid_reads_int_only() -> None:
-    assert _job(MainPID=42).main_pid == 42
-    assert _job(MainPID="x").main_pid == 0
-    assert _job().main_pid == 0
+    assert make_job(MainPID=42).main_pid == 42
+    assert make_job(MainPID="x").main_pid == 0
+    assert make_job().main_pid == 0
 
 
 def test_result_is_none_while_running() -> None:
-    assert _job(Result="exit-code").result is None
+    assert make_job(Result="exit-code").result is None
 
 
 def test_result_is_read_once_stopped() -> None:
     job = Job(
-        unit=_unit("failed", "failed"),
+        unit=make_unit(active_state="failed", sub_state="failed"),
         tags=[],
         session=None,
         environment={},
@@ -81,7 +51,7 @@ def test_result_is_read_once_stopped() -> None:
 
 def test_exit_status_only_for_exit_code_result() -> None:
     job = Job(
-        unit=_unit("failed", "failed"),
+        unit=make_unit(active_state="failed", sub_state="failed"),
         tags=[],
         session=None,
         environment={},
@@ -131,7 +101,7 @@ def _collecting(
 def test_jobs_falls_back_to_any_session(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    seen = _collecting(monkeypatch, {None: [_job(session="other")]})
+    seen = _collecting(monkeypatch, {None: [make_job(session="other")]})
     code = anyio.run(jobs_cmd.cmd_jobs, BUS, _cmd_args(session="s1"))
     assert code == 0
     assert seen == ["s1", None]
@@ -143,7 +113,9 @@ def test_jobs_falls_back_to_any_session(
 def test_jobs_skips_fallback_when_scoped_finds_jobs(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    seen = _collecting(monkeypatch, {"s1": [_job(session="s1")], None: [_job(session="other")]})
+    seen = _collecting(
+        monkeypatch, {"s1": [make_job(session="s1")], None: [make_job(session="other")]}
+    )
     code = anyio.run(jobs_cmd.cmd_jobs, BUS, _cmd_args(session="s1"))
     assert code == 0
     assert seen == ["s1"]
@@ -163,7 +135,7 @@ def test_jobs_reports_nothing_found(
 def test_jobs_any_session_queries_once(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    seen = _collecting(monkeypatch, {None: [_job(session="other")]})
+    seen = _collecting(monkeypatch, {None: [make_job(session="other")]})
     code = anyio.run(jobs_cmd.cmd_jobs, BUS, _cmd_args(any_session=True))
     assert code == 0
     assert seen == [None]
@@ -175,7 +147,7 @@ def test_jobs_hides_foreign_units_by_default(
 ) -> None:
     _collecting(
         monkeypatch,
-        {"s1": [_job(session="s1", name="mine.service"), _job(name="other.service")]},
+        {"s1": [make_job(session="s1", name="mine.service"), make_job(name="other.service")]},
     )
     code = anyio.run(jobs_cmd.cmd_jobs, BUS, _cmd_args(session="s1"))
     assert code == 0
@@ -189,7 +161,7 @@ def test_jobs_all_transient_shows_everything(
 ) -> None:
     _collecting(
         monkeypatch,
-        {"s1": [_job(session="s1", name="mine.service"), _job(name="other.service")]},
+        {"s1": [make_job(session="s1", name="mine.service"), make_job(name="other.service")]},
     )
     code = anyio.run(jobs_cmd.cmd_jobs, BUS, _cmd_args(session="s1", all_transient=True))
     assert code == 0
@@ -203,7 +175,7 @@ def test_jobs_names_hidden_foreign_units(
 ) -> None:
     # A session-less unit never survives the scoped query; the unscoped
     # retry is where the hidden count comes from.
-    _collecting(monkeypatch, {"s1": [], None: [_job(name="other.service")]})
+    _collecting(monkeypatch, {"s1": [], None: [make_job(name="other.service")]})
     code = anyio.run(jobs_cmd.cmd_jobs, BUS, _cmd_args(session="s1"))
     assert code == 1
     captured = capsys.readouterr()
@@ -216,7 +188,7 @@ def test_jobs_any_session_counts_hidden_once(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     """Without a session there is no retry; the one query's count stands."""
-    _collecting(monkeypatch, {None: [_job(name="other.service")]})
+    _collecting(monkeypatch, {None: [make_job(name="other.service")]})
     code = anyio.run(jobs_cmd.cmd_jobs, BUS, _cmd_args(any_session=True))
     assert code == 1
     assert "hiding 1 transient unit" in capsys.readouterr().err
@@ -228,7 +200,7 @@ def test_jobs_fallback_reports_unscoped_hidden_count(
     """The retry's wider view replaces the scoped count instead of adding."""
     _collecting(
         monkeypatch,
-        {"s1": [], None: [_job(name="a.service"), _job(name="b.service")]},
+        {"s1": [], None: [make_job(name="a.service"), make_job(name="b.service")]},
     )
     code = anyio.run(jobs_cmd.cmd_jobs, BUS, _cmd_args(session="s1"))
     assert code == 1
@@ -238,7 +210,7 @@ def test_jobs_fallback_reports_unscoped_hidden_count(
 def test_jobs_json_uses_the_shared_state_keys(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    _collecting(monkeypatch, {None: [_job(session="other")]})
+    _collecting(monkeypatch, {None: [make_job(session="other")]})
     code = anyio.run(jobs_cmd.cmd_jobs, BUS, _cmd_args(any_session=True, json=True))
     assert code == 0
     payload = json.loads(capsys.readouterr().out)
