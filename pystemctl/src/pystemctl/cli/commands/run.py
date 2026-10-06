@@ -166,7 +166,10 @@ async def cmd_run(bus: Bus, args: RunArgs) -> int:
         return 1
     if not args.wait:
         if not args.json:
-            warn(f"see it with pystemctl logs {name}, or pystemctl wait {name}")
+            warn(
+                f"see it with pystemctl tail --until-exit {name},"
+                f" pystemctl wait {name}, or pystemctl logs {name}"
+            )
         return 0
     if args.json:
         emit(args, name, payload)
