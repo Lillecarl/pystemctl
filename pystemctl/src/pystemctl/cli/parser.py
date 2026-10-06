@@ -305,7 +305,7 @@ def build_parser() -> argparse.ArgumentParser:
         help="load defaults from a named profile before the command line",
     )
     run.add_argument("--description", "-d", metavar="TEXT")
-    run.add_argument("--working-directory", "-D", metavar="DIR")
+    run.add_argument("--working-directory", "--dir", "-D", metavar="DIR")
     run.add_argument("--setenv", "-E", action="append", default=[], metavar="KEY=VALUE")
     run.add_argument(
         "--clean",
@@ -403,7 +403,7 @@ def build_parser() -> argparse.ArgumentParser:
         dest="properties",
         action="append",
         metavar="NAME",
-        help="print only this property; repeat for several",
+        help="print only this property; repeat or comma-join for several",
     )
 
     _add(subparsers, "daemon-reload", commands.cmd_daemon_reload, BaseArgs, "reload unit files")

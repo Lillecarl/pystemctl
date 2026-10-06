@@ -6,7 +6,7 @@ import dataclasses
 import pytest
 
 from pystemctl.bus import Scope
-from pystemctl.cli.args import JournalArgs, RunArgs
+from pystemctl.cli.args import JournalArgs, RunArgs, ShowArgs
 from pystemctl.cli.commands.run import strip_separator
 from pystemctl.cli.parser import build_journal_parser, build_parser
 
@@ -77,6 +77,11 @@ def test_run_tag_is_repeatable(parser: argparse.ArgumentParser) -> None:
     assert args.tags == ["a", "b"]
 
 
+def test_run_dir_is_a_working_directory_alias(parser: argparse.ArgumentParser) -> None:
+    args = _parse(parser, ["run", "--dir", "/srv/jobs", "--", "true"])
+    assert args.working_directory == "/srv/jobs"
+
+
 def test_run_command_is_remainder(parser: argparse.ArgumentParser) -> None:
     # REMAINDER keeps the separating "--"; strip_separator removes it, so the
     # handler must never see it and this is the value it starts from.
@@ -98,6 +103,14 @@ def test_run_collect_flags_are_mutually_exclusive(parser: argparse.ArgumentParse
 def test_show_property_is_repeatable(parser: argparse.ArgumentParser) -> None:
     args = _parse(parser, ["show", "x.service", "-P", "MainPID", "-P", "Result"])
     assert args.properties == ["MainPID", "Result"]
+
+
+def test_show_property_splits_commas(parser: argparse.ArgumentParser) -> None:
+    # systemctl spells several properties -p A,B; accept that too. The split
+    # lives in from_namespace, which is what dispatch hands the handler.
+    ns = _parse(parser, ["show", "x.service", "-P", "ActiveState,Result"])
+    assert ns.properties == ["ActiveState,Result"]
+    assert ShowArgs.from_namespace(ns).properties == ["ActiveState", "Result"]
 
 
 def test_target_selector_requires_one_of_unit_or_tag(parser: argparse.ArgumentParser) -> None:

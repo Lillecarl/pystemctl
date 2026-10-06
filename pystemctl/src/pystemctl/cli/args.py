@@ -47,7 +47,11 @@ class ShowArgs(BaseArgs):
 
     @classmethod
     def from_namespace(cls, ns: argparse.Namespace) -> ShowArgs:
-        return cls(scope=ns.scope, json=ns.json, units=list(ns.units), properties=ns.properties)
+        # systemctl spells several properties -P A,B; split commas there too.
+        properties: list[str] | None = None
+        if ns.properties:
+            properties = [name for entry in ns.properties for name in entry.split(",") if name]
+        return cls(scope=ns.scope, json=ns.json, units=list(ns.units), properties=properties)
 
 
 @dataclass(frozen=True)
