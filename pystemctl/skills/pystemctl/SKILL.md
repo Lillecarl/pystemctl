@@ -22,6 +22,9 @@ pystemctl show -P ActiveState -P SubState myunit.service
 
 ## Run an ephemeral unit
 
+Reach for pystemctl when the work outlasts a comfortable foreground command
+or must survive the turn; a ten-second check runs directly.
+
 `pystemctl run` starts a command as a transient unit. A bare run inherits
 the caller's full environment and working directory, so it behaves like the
 same command in the calling shell. Explicit `--setenv` wins over inherited
@@ -62,9 +65,9 @@ pystemctl show -P ActiveState,Result myunit.service   # comma-joins like systemc
 ## Jobs, wait, tail
 
 `jobs` lists pystemctl's own jobs by tag (newest carrying every tag) or
-session. `wait` blocks until a unit finishes or a log line matches.
-`tail` streams a unit's output until it stops and exits with its code;
-`logs -n` peeks at past lines without waiting.
+session — start there to orient. `wait` blocks until a unit finishes or a
+log line matches. `tail` streams a unit's output until it stops and exits
+with its code; `logs -n` peeks at past lines without waiting.
 
 The default long-run loop: start tagged, then alternate bounded waits and
 log reads. Size `--timeout` under your tool-call limit (about 90 second
@@ -78,10 +81,14 @@ pystemctl logs --tag deploy -n 100        # unit name not needed
 
 `wait`'s exit code IS the unit's: no exit files needed. Read it with `; echo`
 after the command, never through a pipe (`| tail` reports tail's code).
-`--timeout 0` checks without waiting. Arriving late still works: `wait`
-reads a collected unit's exit notice from the journal (0 clean, N the
-unit's own failure, 1 for signals), and only a name that never ran fails
-with 4.
+`--timeout 0` checks without waiting. The codes, in full:
+
+- 0 done; N the unit's own failure; 1 failed without a code (signals)
+- 124 the wait outlived `--timeout`; 4 the name never ran
+- 3 from `status` on an inactive or collected unit (systemctl parity)
+
+Arriving late still works: `wait` reads a collected unit's exit notice from
+the journal, and only a name that never ran fails with 4.
 
 One call instead, when the result is the next thing and the wait fits in one
 tool call: `tail` resolves once, streams, and exits with the unit's code
@@ -99,12 +106,10 @@ the match instead of sleeping and re-reading. Piping `logs` into grep: add
 `-o compact` stamps each line, time alone (*HHMMSS*) for today's entries
 and date plus time (*YYMMDDHHMMSS*) for older ones.
 
-Sessions: `run` stamps the invoking agent session on the job. `jobs` lists
-that session by default and falls back to every session when the scoped
-answer is empty, saying so on stderr. `--any-session` skips the filter;
-`--session ID` selects one. By tag, `wait` / `tail` / `logs` / `status`
-resolve across sessions, newest match wins — and a tag keeps working after
-the job's unit unloads, because tags ride along in the journal.
+Sessions are automatic and rarely named: `run` stamps yours, `jobs`
+filters to it (falling back to every session with a note). `--session ID`
+selects one, `--any-session` skips the filter. Tag lookups resolve across
+sessions, newest wins, and keep working after the unit unloads.
 
 ## Logs and journal
 
